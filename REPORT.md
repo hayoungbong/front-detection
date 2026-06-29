@@ -183,8 +183,8 @@ ConvBlock = Conv2d(3×3) → BatchNorm → ReLU → Conv2d(3×3) → BatchNorm �
 - **Loss**: Focal Loss (γ=2) with inverse-frequency class weights
 - **Optimizer**: AdamW (lr=1e-4, weight_decay=1e-4)
 - **Scheduler**: CosineAnnealingLR (T_max=30, η_min=lr×0.01)
-- **Batch size**: 8
-- **Hardware**: Apple M3 Pro (MPS, 18 GB unified memory)
+- **Batch size**: 8 (CPU/MPS) / 32 (A100 GPU)
+- **Hardware**: Apple M-series (MPS) · NASA Discover (NVIDIA A100-SXM4-40GB)
 
 ### 5.3 Class Imbalance
 
@@ -277,7 +277,7 @@ for 2019–2025 (7 years), and 925 hPa was not available in the legacy ERA5
 files. New regional ERA5 download (including 925 hPa from the start) is
 currently in progress (1970–2026).
 
-### 6.4 Run 4 — In Progress
+### 6.4 Run 4 — Complete
 
 **Configuration:** Same 4-channel model as Run 2 (`train_unet.py`),
 TFP classification labels rebuilt with new data pipeline,
@@ -294,20 +294,38 @@ Run 4 is a clean rebuild of Run 2 with a new, higher-quality data pipeline:
 | Data leakage check | Not verified | **Confirmed clean (val=2025)** |
 | Regression targets | Not available | **tadv_850, grad_mag_850 in files** |
 
-**Smoke test results (5 epochs, train 2021–2024 / val 2025):**
+**Final metrics (Epoch 30, train 2019–2024 / val 2025):**
 
-| Epoch | CF | WF | SF | Mean |
-|-------|----|----|----|----|
-| 1 | 0.558 | 0.489 | 0.265 | 0.437 |
-| 3 | 0.636 | 0.577 | 0.351 | 0.521 |
-| 5 | **0.681** | **0.657** | **0.426** | **0.588** |
+| Class | F1 | Notes |
+|-------|----|----|
+| Cold Front (CF) | 0.837 | Strong signal from temperature gradient |
+| Warm Front (WF) | 0.822 | Consistent with CF |
+| Stationary Front (SF) | **0.645** | First reliable SF — enough data to learn |
+| **Mean** | **0.768** | Best checkpoint at epoch 30 |
 
-All metrics trending upward at epoch 5 — full 30-epoch run is currently
-in progress (train 2019–2024, val 2025).
+**Key finding:** SF class properly emerged for the first time.
+With 6 years of training data the model sees enough stationary front cases
+to learn the pattern; in Runs 1–2 SF was effectively noise (too rare relative
+to dataset size). F1 plateau around 0.77 confirms that label quality
+(TFP threshold) is now the bottleneck, motivating Run 5.
 
-**Expected outcome:** Based on the smoke test trajectory and larger dataset
-(2019–2024 vs. smoke test's 2021–2024), Run 4 is projected to meet or
-exceed Run 2's best of F1=0.768.
+### 6.5 Run 5 — Training (12-channel Hybrid)
+
+**Configuration:** 12-channel input (`train_unet_v4.py`), Hybrid ERA5×WPC labels
+(5-class: BG/CF/WF/SF/OF), 2019–2024 training, 2025 validation, 30 epochs.
+Running on NASA Discover A100 GPU (batch 32).
+
+| Aspect | Run 4 | Run 5 |
+|--------|-------|-------|
+| Label source | TFP threshold | WPC analyst + TFP intersection |
+| Input channels | 4 | **12** |
+| Occluded Front | ✗ | ✓ |
+| Upper-level info | ✗ | z500 (trough/ridge) |
+| Surface fields | ✗ | t2m, u10, v10, msl |
+| Moisture | ✗ | q850 |
+| Hardware | CPU / MPS | **A100 GPU** (batch 32) |
+
+Results pending.
 
 ### 6.5 WPC Label-Pipeline Overhaul (enables Run 5)
 
@@ -390,11 +408,11 @@ continuous fields is more internally consistent and globally applicable.
 ## 8. Planned Next Steps
 
 ### Near-term
-1. Complete ERA5 regional download (1970–2026) — currently in progress
-2. Build training data for all years with regression targets
-3. Build extra channels including t925 for 1970–2026
-4. Full Run 3 (2019–2026, hybrid labels, 30+ epochs)
-5. Full Run 4 (1970–2026, 12 channels, hybrid + regression, 30+ epochs)
+1. ✅ ERA5 regional download (2019–2026) — complete
+2. ✅ Build training data with regression targets (2019–2025)
+3. ✅ Build extra channels (z500/q850/w850/msl/t925/t2m/u10/v10, 2019–2025)
+4. ✅ WPC label pipeline overhaul — SF recovered, projection fixed
+5. 🔄 Run 5 full training (2019–2024, 12-ch hybrid, A100 GPU) — in progress
 
 ### Medium-term
 6. Distance-based evaluation metric: detection rate within N km of WPC front

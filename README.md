@@ -16,7 +16,7 @@ oceans using ERA5 reanalysis and a U-Net deep learning model.
 | **Labels** | TFP-based (Runs 1–2) → Hybrid ERA5×WPC 5-class (Runs 3–5) |
 | **Model** | U-Net (Focal Loss γ=2, AdamW, CosineAnnealingLR), 4→12 channels |
 | **Best result** | Run 4: Mean F1 = **0.768** (CF=0.837, WF=0.822, SF=0.645) |
-| **Compute** | Mac M-series (MPS) · isotope3 CPU · NASA Discover A100 GPU |
+| **Compute** | Mac M-series (MPS) · NASA Discover A100 GPU |
 
 ---
 
@@ -28,7 +28,7 @@ oceans using ERA5 reanalysis and a U-Net deep learning model.
 | **Run 2** | `train_unet.py` | 4 (t850/u850/v850/tfp) | TFP classification | 2019–2021 | 30 | **0.768** | ✅ Complete |
 | **Run 3** | `train_unet_v3.py` | 8 (+z500/q850/w850/msl) | Hybrid ERA5×WPC (5-class+OF) | 2024 only | 10 | 0.127* | ✅ Smoke test |
 | **Run 4** | `train_unet.py` | 4 (t850/u850/v850/tfp) | TFP classification | 2019–2024 | 30 | **0.768** | ✅ Complete |
-| **Run 5** | `train_unet_v4.py` | **12** (base 4 + z500/q850/w850/msl/t925/t2m/u10/v10) | **Hybrid ERA5×WPC, 5-class (BG/CF/WF/SF/OF)** | 2019–2024 | 30 | — | 🔄 Training (isotope3 CPU + Discover A100) |
+| **Run 5** | `train_unet_v4.py` | **12** (base 4 + z500/q850/w850/msl/t925/t2m/u10/v10) | **Hybrid ERA5×WPC, 5-class (BG/CF/WF/SF/OF)** | 2019–2024 | 30 | — | 🔄 Training (Discover A100 GPU) |
 
 *Run 3 smoke test: 2024 only, 10 epochs, not converged.
 
@@ -160,7 +160,6 @@ Training runs in parallel across three platforms:
 | Platform | Device | Batch | Role |
 |----------|--------|-------|------|
 | MacBook Pro (M-series) | Apple MPS | 8 | Development, Run 4 |
-| isotope3 (lab server) | CPU × 12 threads | 8 | Run 5 CPU baseline |
 | NASA Discover HPC | NVIDIA A100-SXM4-40GB | 32 | Run 5 GPU training |
 
 **Discover:** SLURM `gpu_a100` partition, PyTorch 2.6.0 + CUDA 12.4, ERA5 at `/css/era5/`.

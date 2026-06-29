@@ -1,9 +1,9 @@
 """
-U-Net Front Detection — Run 4 (12-channel, 5-class hybrid labels)
+U-Net Front Detection — Run 3 (8-channel, 5-class hybrid labels)
 =================================================================
-Extends Run 3 with 4 additional input channels:
-  - 12 input channels: t850/u850/v850/tfp_850 (from hybrid NC) +
-                       z500/q850/w850/msl/t925/t2m/u10/v10 (from extra_channels NC)
+Extends Run 2 with:
+  - 8 input channels: t850/u850/v850/tfp_850 (from hybrid NC) +
+                      z500/q850/w850/msl (from extra_channels NC)
   - 5 output classes: 0=BG 1=CF 2=WF 3=SF 4=OF
   - Hybrid labels (ERA5 TFP position ∩ WPC expert type)
 
@@ -11,13 +11,13 @@ Data layout:
   /Volumes/SSD_Hayoung/fronts/hybrid_labels/hybrid_YYYY.nc
       → variables: t850, u850, v850, tfp_850, front_label (5-class), tfp_label
   /Volumes/SSD_Hayoung/fronts/training/extra_channels_YYYY.nc
-      → variables: z500, q850, w850, msl, t925, t2m, u10, v10
+      → variables: z500, q850, w850, msl
 
 Usage:
-  python train_unet_v4.py                              # default: train 2022 2023 2024, val 2025
-  python train_unet_v4.py --train 2022 2023 2024 --val 2025 --epochs 30
-  python train_unet_v4.py --predict 2026-01-15T00      # inference
-  python train_unet_v4.py --resume
+  python train_unet_v3.py                              # default: train 2024, val 2025
+  python train_unet_v3.py --train 2023 2024 --val 2025 --epochs 20
+  python train_unet_v3.py --predict 2026-01-15T00      # inference on 2026
+  python train_unet_v3.py --resume
 """
 
 import os, argparse, time, csv
@@ -37,19 +37,19 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 
-# ── Paths (overridable via --data-root or individual --*-dir flags) ────────
-_DEFAULT_ROOT = Path('/Volumes/SSD_Hayoung/fronts')
-HYBRID_DIR = _DEFAULT_ROOT / 'hybrid_labels'
-EXTRA_DIR  = _DEFAULT_ROOT / 'training'
-MODEL_DIR  = _DEFAULT_ROOT / 'models'
+# ── Paths ──────────────────────────────────────────────────────────────────
+HYBRID_DIR = Path('/Volumes/SSD_Hayoung/fronts/hybrid_labels')
+EXTRA_DIR  = Path('/Volumes/SSD_Hayoung/fronts/training')
+MODEL_DIR  = Path('/Volumes/SSD_Hayoung/fronts/models')
+MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── Config ─────────────────────────────────────────────────────────────────
-IN_CH       = 12
+IN_CH       = 8
 N_CLASSES   = 5
 CLASS_NAMES = ['BG', 'CF', 'WF', 'SF', 'OF']
 
-BASE_VARS  = ['t850', 'u850', 'v850', 'tfp_850']               # from hybrid NC
-EXTRA_VARS = ['z500', 'q850', 'w850', 'msl', 't925', 't2m', 'u10', 'v10']  # from extra_channels NC
+BASE_VARS  = ['t850', 'u850', 'v850', 'tfp_850']   # from hybrid NC
+EXTRA_VARS = ['z500', 'q850', 'w850', 'msl']        # from extra_channels NC
 ALL_VARS   = BASE_VARS + EXTRA_VARS
 
 # ── Device ─────────────────────────────────────────────────────────────────
@@ -269,7 +269,7 @@ def train(args):
     val_years   = list(range(args.val[0],   args.val[1]   + 1))
     print(f'Train: {train_years}  Val: {val_years}')
 
-    run_tag     = f'unet_v4_hybrid_{train_years[0]}-{train_years[-1]}_e{args.epochs}_b{args.batch}'
+    run_tag     = f'unet_v3_hybrid_{train_years[0]}-{train_years[-1]}_e{args.epochs}_b{args.batch}'
     log_path    = MODEL_DIR / f'{run_tag}.log'
     csv_path    = MODEL_DIR / f'{run_tag}_metrics.csv'
     resume_ckpt = MODEL_DIR / f'{run_tag}_resume.pt'
@@ -391,7 +391,7 @@ def train(args):
 
 # ── Inference ──────────────────────────────────────────────────────────────
 def predict(args):
-    """Run 12-channel inference on a single timestep and save comparison figure."""
+    """Run 8-channel inference on a single timestep and save comparison figure."""
     import matplotlib; matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     import matplotlib.colors as mcolors
@@ -399,9 +399,9 @@ def predict(args):
     import cartopy.feature as cfeature
 
     device = get_device()
-    ckpts  = sorted(MODEL_DIR.glob('unet_v4_*_best.pt'))
+    ckpts  = sorted(MODEL_DIR.glob('unet_v3_*_best.pt'))
     if not ckpts:
-        print('No v4 checkpoint found. Run training first.'); return
+        print('No v3 checkpoint found. Run training first.'); return
     ckpt_path = ckpts[-1]
     print(f'Loading: {ckpt_path.name}')
 
@@ -466,7 +466,7 @@ def predict(args):
     lons2d, lats2d = np.meshgrid(lons, lats)
     for ax, data, title in zip(axes,
         [true_label, pred],
-        [f'{label_src}\n{actual}', f'U-Net v4 Prediction\n{actual}']):
+        [f'{label_src}\n{actual}', f'U-Net v3 Prediction\n{actual}']):
         ax.set_extent(ext, crs=ccrs.PlateCarree())
         ax.add_feature(cfeature.LAND,      facecolor='#f0ede8')
         ax.add_feature(cfeature.OCEAN,     facecolor='#c8e6f5')
@@ -480,11 +480,11 @@ def predict(args):
     cb = plt.colorbar(im, ax=axes, orientation='horizontal', pad=0.03,
                       fraction=0.04, shrink=0.6, ticks=[0,1,2,3,4])
     cb.set_ticklabels(['BG','CF','WF','SF','OF'])
-    fig.suptitle(f'U-Net v4 (12-ch, 5-class hybrid)  |  {actual}',
+    fig.suptitle(f'U-Net v3 (8-ch, 5-class hybrid)  |  {actual}',
                  fontsize=12, fontweight='bold')
 
     tag = str(actual)[:13].replace('T','-').replace(':','')
-    out = Path(f'/Users/hayoungbong/Analysis/Front/figures/predict_v4_{tag}.png')
+    out = Path(f'/Users/hayoungbong/Analysis/Front/figures/predict_v3_{tag}.png')
     plt.savefig(out, dpi=130, bbox_inches='tight')
     plt.close()
     print(f'Saved: {out}')
@@ -492,36 +492,19 @@ def predict(args):
 
 # ── Main ───────────────────────────────────────────────────────────────────
 def main():
-    global HYBRID_DIR, EXTRA_DIR, MODEL_DIR  # allow CLI overrides
-
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument('--train',      nargs=2, type=int, default=[2022, 2024],
-                   metavar=('START', 'END'))
-    p.add_argument('--val',        nargs=2, type=int, default=[2025, 2025],
-                   metavar=('START', 'END'))
-    p.add_argument('--epochs',     type=int,   default=10)
-    p.add_argument('--batch',      type=int,   default=8)
-    p.add_argument('--lr',         type=float, default=1e-4)
-    p.add_argument('--resume',     action='store_true')
-    p.add_argument('--predict',    type=str,   default=None,
+    p.add_argument('--train',   nargs=2, type=int, default=[2024, 2024],
+                   metavar=('START', 'END'), help='Training year range (default: 2024)')
+    p.add_argument('--val',     nargs=2, type=int, default=[2025, 2025],
+                   metavar=('START', 'END'), help='Validation year range (default: 2025)')
+    p.add_argument('--epochs',  type=int,   default=10)
+    p.add_argument('--batch',   type=int,   default=8)
+    p.add_argument('--lr',      type=float, default=1e-4)
+    p.add_argument('--resume',  action='store_true')
+    p.add_argument('--predict', type=str,   default=None,
                    help='Run inference: e.g. 2026-01-15T00')
-    p.add_argument('--data-root',  type=str,   default=None,
-                   help='Override all data dirs: <root>/hybrid_labels, <root>/training, <root>/models')
-    p.add_argument('--hybrid-dir', type=str,   default=None)
-    p.add_argument('--extra-dir',  type=str,   default=None)
-    p.add_argument('--model-dir',  type=str,   default=None)
     args = p.parse_args()
-
-    if args.data_root:
-        root = Path(args.data_root)
-        HYBRID_DIR = root / 'hybrid_labels'
-        EXTRA_DIR  = root / 'training'
-        MODEL_DIR  = root / 'models'
-    if args.hybrid_dir: HYBRID_DIR = Path(args.hybrid_dir)
-    if args.extra_dir:  EXTRA_DIR  = Path(args.extra_dir)
-    if args.model_dir:  MODEL_DIR  = Path(args.model_dir)
-    MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
     if args.predict:
         predict(args)

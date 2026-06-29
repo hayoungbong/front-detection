@@ -158,27 +158,44 @@ This hybrid approach uses both sources for their respective strengths.
 
 ---
 
-## Step 5 — Train U-Net
+## Step 5 — Build Extra Channels
 
 ```bash
-# 2nd run (TFP labels, in progress)
-python scripts/train_unet.py --epochs 30 --batch 8 \
-    --train 2019 2020 2021 2022 2023 2024 --val 2025
+# Mac (reads from /Volumes/SSD_Hayoung/ERA5/)
+python scripts/build_extra_channels.py --years 2019 2025 --overwrite
 
-# 3rd run (planned: hybrid labels, 5 classes including OF)
-python scripts/train_unet.py --epochs 30 --batch 8 \
-    --train 2019 2020 2021 2022 2023 2024 --val 2025 \
-    --label-dir /Volumes/SSD_Hayoung/fronts/hybrid_labels \
-    --n-classes 5
-
-python scripts/train_unet.py --resume   # continue from checkpoint
+# NASA Discover (reads from /css/era5/)
+python scripts/build_extra_channels_discover.py --years 2019 2025
 ```
 
-Checkpoints: `/Volumes/SSD_Hayoung/fronts/models/`
+Extracts 8 additional atmospheric variables per year for Run 5 12-channel input.
+
+**Output:** `extra_channels_YYYY.nc`
+**Variables:** `z500`, `q850`, `w850`, `msl`, `t925`, `t2m`, `u10`, `v10`
 
 ---
 
-## Step 6 — Plot Training Summary
+## Step 6 — Train U-Net
+
+```bash
+# Run 4: 4-channel TFP labels (complete)
+python scripts/train_unet.py --epochs 30 --batch 8 \
+    --train 2019 2020 2021 2022 2023 2024 --val 2025
+
+# Run 5: 12-channel hybrid labels (in progress)
+python scripts/train_unet_v4.py \
+    --train 2019 2024 --val 2025 2025 \
+    --epochs 30 --batch 32 \
+    --data-root /path/to/fronts/data
+
+python scripts/train_unet_v4.py --resume   # continue from checkpoint
+```
+
+Checkpoints: `models/`
+
+---
+
+## Step 7 — Plot Training Summary
 
 ```bash
 python scripts/plot_training.py
@@ -188,15 +205,15 @@ Generates training progress figures (Loss, F1 by class, Run comparison).
 
 ---
 
-## Step 7 — Inference / Prediction
+## Step 8 — Inference / Prediction
 
 ```bash
-python scripts/train_unet.py --predict 2025-06-15T00 --epochs 30 --batch 8
+python scripts/train_unet_v4.py --predict 2025-06-15T00
 ```
 
 ---
 
-## Step 8 — Compare with WPC Analyst
+## Step 10 — Compare with WPC Analyst
 
 ```bash
 python scripts/compare_unet_wpc.py --time 2024-04-03T00
@@ -205,7 +222,7 @@ python scripts/compare_unet_wpc.py --period 2026
 
 ---
 
-## Step 9 — TFP Visualisation (standalone)
+## Step 11 — TFP Visualisation (standalone)
 
 ```bash
 python scripts/batch_tfp_arco.py 2024 2024
@@ -223,6 +240,7 @@ python scripts/plot_tfp_global.py 2024-09-26T18 0.2
 │   └── single_level/     era5_SFC_YYYYMM.nc
 └── fronts/
     ├── training/         era5_YYYY_training.nc      (TFP-based labels, 4 class)
+    ├── extra_channels/   extra_channels_YYYY.nc     (z500/q850/w850/msl/t925/t2m/u10/v10)
     ├── hybrid_labels/    hybrid_YYYY.nc             (Hybrid labels, 5 class + OF)
     ├── wpc_labels/       wpc_labels_YYYY.nc         (WPC image extraction)
     ├── wpc_gif_cache/    namfntsfc*.gif             (28,442 cached images)
