@@ -184,7 +184,15 @@ ConvBlock = Conv2d(3×3) → BatchNorm → ReLU → Conv2d(3×3) → BatchNorm �
 - **Optimizer**: AdamW (lr=1e-4, weight_decay=1e-4)
 - **Scheduler**: CosineAnnealingLR (T_max=30, η_min=lr×0.01)
 - **Batch size**: 8 (CPU/MPS) / 32 (A100 GPU)
-- **Hardware**: Apple M-series (MPS) · NASA Discover (NVIDIA A100-SXM4-40GB)
+- **Hardware**: Apple M-series (MPS) · NASA Discover PRISM (NVIDIA A100-SXM4-40GB)
+
+**GPU note:** The A100-SXM4-40GB (40 GB HBM2, ~1.5 TB/s memory bandwidth) was the
+de facto standard for HPC AI workloads before H100. NASA Discover operates V100,
+A100, and H100 nodes; A100 remains a primary production GPU for scientific
+deep learning. For a U-Net of this scale (~31M parameters), the A100 is
+not compute-bound — the bottleneck is disk I/O during NetCDF loading.
+Once training begins, GPU utilization is high and batch 32 runs comfortably
+within the 40 GB VRAM.
 
 ### 5.3 Class Imbalance
 

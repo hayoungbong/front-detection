@@ -174,9 +174,12 @@ Training runs in parallel across three platforms:
 | Platform | Device | Batch | Role |
 |----------|--------|-------|------|
 | MacBook Pro (M-series) | Apple MPS | 8 | Development, Run 4 |
-| NASA Discover HPC | NVIDIA A100-SXM4-40GB | 32 | Run 5 GPU training |
+| NASA Discover PRISM | NVIDIA A100-SXM4-40GB | 32 | Run 4 CPU · Run 5 GPU |
 
 **Discover:** SLURM `gpu_a100` partition, PyTorch 2.6.0 + CUDA 12.4, ERA5 at `/css/era5/`.
+The A100-SXM4-40GB (40 GB HBM2) is a top-tier research GPU — the HPC standard before H100,
+still widely used for scientific ML. For this U-Net scale, the bottleneck is NetCDF I/O,
+not GPU compute; once training begins, the A100 handles batch 32 with ample headroom.
 
 ---
 
