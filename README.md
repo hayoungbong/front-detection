@@ -15,7 +15,8 @@ oceans using ERA5 reanalysis and a U-Net deep learning model.
 | **Input data** | ERA5 reanalysis (CDS API), 1970–2026 |
 | **Labels** | TFP-based (Runs 1–2) → Hybrid ERA5×WPC 5-class (Runs 3–5) |
 | **Model** | U-Net (Focal Loss γ=2, AdamW, CosineAnnealingLR), 4→12 channels |
-| **Best result** | Run 2: Mean F1 = **0.768** \| Run 4 (ep 14/30): Mean F1 = **0.685** and rising |
+| **Best result** | Run 4: Mean F1 = **0.768** (CF=0.837, WF=0.822, SF=0.645) |
+| **Compute** | Mac M-series (MPS) · isotope3 CPU · NASA Discover A100 GPU |
 
 ---
 
@@ -26,11 +27,10 @@ oceans using ERA5 reanalysis and a U-Net deep learning model.
 | **Run 1** | `train_unet.py` | 4 (t850/u850/v850/tfp) | TFP classification | 2020–2021 | 30 | 0.675 | ✅ Complete |
 | **Run 2** | `train_unet.py` | 4 (t850/u850/v850/tfp) | TFP classification | 2019–2021 | 30 | **0.768** | ✅ Complete |
 | **Run 3** | `train_unet_v3.py` | 8 (+z500/q850/w850/msl) | Hybrid ERA5×WPC (5-class+OF) | 2024 only | 10 | 0.127* | ✅ Smoke test |
-| **Run 4** | `train_unet.py` | 4 (t850/u850/v850/tfp) | TFP classification | 2019–2024 | 30 | 0.685†| 🔄 In progress (ep 14/30) |
-| **Run 5** | `train_unet_v4.py` | **12** (base 4 + z500/q850/w850/msl/t925/t2m/u10/v10) | **Hybrid ERA5×WPC, 5-class (BG/CF/WF/SF/OF)** | 2019–2024 | 30 | — | ⏳ Queued (auto-starts after Run 4) |
+| **Run 4** | `train_unet.py` | 4 (t850/u850/v850/tfp) | TFP classification | 2019–2024 | 30 | **0.768** | ✅ Complete |
+| **Run 5** | `train_unet_v4.py` | **12** (base 4 + z500/q850/w850/msl/t925/t2m/u10/v10) | **Hybrid ERA5×WPC, 5-class (BG/CF/WF/SF/OF)** | 2019–2024 | 30 | — | 🔄 Training (isotope3 CPU + Discover A100) |
 
 *Run 3 smoke test: 2024 only, 10 epochs, not converged.
-†Run 4 at epoch 14/30 (CF=0.768, WF=0.742, SF=0.546, trending upward).
 
 **WPC label-pipeline overhaul (2026-06):** the WPC ground-truth extraction was fixed —
 front extraction (had silently returned 0 px), a ~10° projection rotation (fronts were
@@ -38,14 +38,14 @@ front extraction (had silently returned 0 px), a ~10° projection rotation (fron
 red/blue symbols, previously always empty). 20 years of labels regenerated; SF populated
 for the first time, unblocking the 5-class **Run 5**. See `REPORT.md` §6.5 / `PIPELINE.md` Step 3.
 
-### Run 2 — Final Metrics (Epoch 30)
+### Run 4 — Final Metrics (Epoch 30, train 2019–2024 / val 2025)
 
 | Class | F1 | Notes |
 |-------|----|-------|
-| Cold Front (CF) | 0.837 | Strong signal from temperature advection |
+| Cold Front (CF) | 0.837 | Strong signal from temperature gradient |
 | Warm Front (WF) | 0.822 | Consistent with CF |
-| Stationary Front (SF) | 0.645 | Inherently ambiguous (advection ≈ 0) |
-| **Mean** | **0.768** | Best checkpoint, no overfitting |
+| Stationary Front (SF) | 0.645 | First reliable SF — enough data to learn |
+| **Mean** | **0.768** | Best checkpoint at epoch 30 |
 
 ### Run 3 — Smoke Test (Epoch 10, 2024 data only)
 
@@ -57,18 +57,9 @@ for the first time, unblocking the 5-class **Run 5**. See `REPORT.md` §6.5 / `P
 | Occluded Front (OF) | 0.063 | **First successful OF detection** |
 | **Mean** | **0.127** | Not converged — 1 year only |
 
-### Run 4 — In Progress (Epoch 14/30, train 2019–2024 / val 2025)
-
-| Class | F1 | Notes |
-|-------|----|-------|
-| Cold Front (CF) | 0.768 | Matches Run 2 best |
-| Warm Front (WF) | 0.742 | Consistent with CF |
-| Stationary Front (SF) | 0.546 | Best SF so far — still improving |
-| **Mean** | **0.685** | Epoch 14/30, continues training |
-
 ---
 
-## Run 5: 12-Channel Hybrid (Queued)
+## Run 5: 12-Channel Hybrid (Training)
 
 Run 5 is the first full hybrid training run — combining ERA5 thermodynamics
 (position accuracy) with WPC analyst labels (expert type judgment) and
@@ -159,6 +150,20 @@ does not suffer from this threshold drift.
 |----------|-----------------|-----------|
 | `tadv_850` | Temperature advection (-**v**·∇T) | Sign gives CF/WF naturally, magnitude gives intensity |
 | `grad_mag_850` | \|∇T\| at 850 hPa | Frontal intensity without discretization |
+
+---
+
+## Compute Infrastructure
+
+Training runs in parallel across three platforms:
+
+| Platform | Device | Batch | Role |
+|----------|--------|-------|------|
+| MacBook Pro (M-series) | Apple MPS | 8 | Development, Run 4 |
+| isotope3 (lab server) | CPU × 12 threads | 8 | Run 5 CPU baseline |
+| NASA Discover HPC | NVIDIA A100-SXM4-40GB | 32 | Run 5 GPU training |
+
+**Discover:** SLURM `gpu_a100` partition, PyTorch 2.6.0 + CUDA 12.4, ERA5 at `/css/era5/`.
 
 ---
 
