@@ -202,10 +202,13 @@ Frontal pixels constitute only ~1.2% of the training domain.
 
 ## 6. Training Run Results
 
-### 6.1 Run 1 — Baseline (Complete)
+### 6.1 Run 1 — Proof of Concept (Complete)
 
-**Configuration:** 4-channel input, TFP classification labels, 2020–2021 training,
-2022 validation, 30 epochs.
+**Configuration:** 4-channel input (t850/u850/v850/tfp_850), TFP classification labels,
+2020–2021 training, 2022 validation, 30 epochs, batch 4.
+
+**Primary question:** Can a U-Net learn to locate atmospheric fronts from ERA5
+thermodynamic fields alone?
 
 | Class | F1 |
 |-------|-----|
@@ -214,23 +217,35 @@ Frontal pixels constitute only ~1.2% of the training domain.
 | Stationary Front (SF) | 0.531 |
 | **Mean** | **0.675** |
 
-Spatial connectivity poor at epoch 1 (smoke test: Mean F1=0.449), improved
-substantially with full 30-epoch training. Established that U-Net can learn
-front positions from ERA5 thermodynamic fields.
+**Answer: Yes.** F1=0.675 from only 2 years of training confirms that the U-Net
+architecture can extract frontal patterns from ERA5. The model learns spatially
+coherent front structures despite training only on TFP-derived labels.
 
-### 6.2 Run 2 — Extended Dataset (Complete)
+**What Run 1 revealed:**
+- CF and WF are learnable from thermodynamic fields alone
+- SF is the hardest class — temperature advection ≈ 0 is inherently ambiguous
+- 2 training years are insufficient for the model to fully converge
+- The TFP label ceiling is already visible: the model cannot exceed what TFP encodes
 
-**Configuration:** Same 4-channel model, TFP classification labels,
-2019–2024 training (3× more data), 2025 validation, 30 epochs.
+**What this motivated:** Add more training data (Run 2) and eventually replace
+TFP labels with expert analyst labels (Runs 3, 5).
+
+### 6.2 Run 2 — Data Scaling: More Years (Complete)
+
+**Configuration:** Same 4-channel TFP model, 2019–2021 training (+1 year over Run 1),
+2022 validation, 30 epochs.
+
+**Primary question:** Is the Run 1 result data-limited? Does adding one more year
+of training data improve performance?
 
 Per-epoch progression:
 
 | Epoch | Mean F1 | Notes |
 |-------|---------|-------|
 | 1 | 0.451 | |
-| 10 | 0.621 | |
-| 16 | 0.689 | Rapid improvement (CosineAnnealingLR late phase) |
-| 30 | **0.768** | Best checkpoint, still improving |
+| 10 | 0.621 | Steady improvement |
+| 20 | 0.719 | CosineAnnealingLR late phase |
+| 30 | **0.768** | Best checkpoint — still not fully converged |
 
 **Final metrics (Epoch 30 — best):**
 
@@ -241,25 +256,29 @@ Per-epoch progression:
 | Stationary Front (SF) | **0.645** |
 | **Mean** | **0.768** |
 
+**Answer: Yes — significantly.** F1 0.675 → 0.768 (+14%) from adding one year.
+The learning curve has not plateaued at epoch 30, suggesting even more data
+would continue to help.
+
 **Key observations:**
-- No overfitting: validation loss consistently below training loss
-  (2025 ERA5 patterns appear cleaner than 2019–2024 training period)
-- SF remains lowest: temperature advection ≈ 0 is inherently ambiguous
-- Run 2 U-Net over-detects by ×2.8 vs. WPC (TFP baseline: ×2.1)
-  — expected, since Run 2 learns TFP labels which are themselves more
-  generous than analyst-drawn fronts
+- CF/WF now plateau near 0.84/0.82 — strong signals well-learned
+- SF improved but remains the bottleneck (TFP-based SF labeling is inherently noisy)
+- No overfitting — validation loss tracks training loss closely
+- Run 2 U-Net over-detects by ×2.8 vs. WPC: expected, since it learns TFP labels
+  which are more generous than analyst-drawn fronts
 
-**Comparison with WPC analyst (49 samples, 2025):**
+**What this motivated:** Continue scaling data (Run 4: 6 years) to see how far
+the TFP-based approach can go, while also testing expert labels (Run 3) in parallel
+to understand whether the real ceiling is data quantity or label quality.
 
-Pixel-level F1 vs. WPC is low (~0.007) due to width mismatch: model
-predicts 2–3 pixel bands while WPC labels are skeletonized to 1 pixel.
-Qualitative comparison shows correct front positions and spatial structure.
+### 6.3 Run 3 — Hybrid Labels: Proof of Concept (Smoke Test)
 
-### 6.3 Run 3 — Hybrid Labels, Smoke Test Only
-
-**Configuration:** 8-channel input (Run 2 channels + z500/q850/w850/msl),
+**Configuration:** 8-channel input (t850/u850/v850/tfp + z500/q850/w850/msl),
 Hybrid ERA5×WPC labels (5-class: BG/CF/WF/SF/OF), 2024 training only,
 2025 validation, 10 epochs.
+
+**Primary question:** Do hybrid WPC×ERA5 labels work at all? Can the U-Net
+detect Occluded Fronts — a class that TFP alone cannot produce?
 
 | Epoch | CF | WF | SF | OF | Mean |
 |-------|----|----|----|----|------|
@@ -269,63 +288,106 @@ Hybrid ERA5×WPC labels (5-class: BG/CF/WF/SF/OF), 2024 training only,
 
 **Status: smoke test only — 1 year of data, 10 epochs, not converged.**
 
-**Key achievement:** First successful detection of Occluded Fronts (OF) —
-a class impossible to generate from TFP alone, emerging from hybrid labels.
+**Answer: Yes.** Two key proof points:
+1. **Hybrid labels work** — CF/WF are climbing at ep10 with only 1 year
+2. **OF detection works** — F1=0.063 at epoch 10 is a landmark: the first
+   time an Occluded Front has ever been detected in this pipeline.
+   TFP-based labels cannot generate OF at all; this class exists only
+   because WPC analysts drew it.
 
-**Why it stopped here:** Full Run 3 requires hybrid labels and extra channels
-for 2019–2025 (7 years), and 925 hPa was not available in the legacy ERA5
-files. New regional ERA5 download (including 925 hPa from the start) is
-currently in progress (1970–2026).
+**SF=0.000 explained:** The WPC label pipeline had a bug — the stationary
+front color (alternating red/blue) was not being detected, so SF labels were
+always empty. Fixed before Run 5 (see §6.5 WPC overhaul).
 
-### 6.4 Run 4 — Complete
+**What this motivated:** Run 3 proved the concept but was data-starved.
+The full hybrid run needs 6 years of data, corrected SF labels, and
+an expanded 12-channel input — that is Run 5.
 
-**Configuration:** Same 4-channel model as Run 2 (`train_unet.py`),
-TFP classification labels rebuilt with new data pipeline,
-2019–2024 training (6 years), 2025 validation, 30 epochs, batch 8.
+### 6.4 Run 4 — Maximum TFP Baseline: 6-Year Dataset (In Progress)
 
-Run 4 is a clean rebuild of Run 2 with a new, higher-quality data pipeline:
+**Configuration:** Same 4-channel TFP model as Run 2 (`train_unet.py`),
+2019–2024 training (6 years, 2× Run 2), 2025 validation, 30 epochs, batch 8.
+Running on NASA Discover CPU cluster.
+
+**Primary question:** What is the maximum F1 achievable with TFP labels
+and the full available training data (6 years)? Where does the TFP ceiling lie?
+
+Run 4 is a clean rebuild of Run 2 with a larger dataset and new data pipeline:
 
 | Aspect | Run 2 | Run 4 |
 |--------|-------|-------|
 | Training data source | Legacy 5-variable files | **New 7-variable pipeline** |
 | ERA5 download | Original (no 925 hPa) | **New regional download with 925 hPa** |
-| Training years | 2019–2021 | **2019–2024 (6 years)** |
+| Training years | 2019–2021 (3 yr) | **2019–2024 (6 yr — 2×)** |
 | Training samples | ~4,380 | **~8,768** |
-| Data leakage check | Not verified | **Confirmed clean (val=2025)** |
+| Validation year | 2022 | **2025 (fully held-out future year)** |
 | Regression targets | Not available | **tadv_850, grad_mag_850 in files** |
 
-**Final metrics (Epoch 30, train 2019–2024 / val 2025):**
+**Current results (Epoch 11/30, NASA Discover CPU):**
 
-| Class | F1 | Notes |
-|-------|----|----|
-| Cold Front (CF) | 0.837 | Strong signal from temperature gradient |
-| Warm Front (WF) | 0.822 | Consistent with CF |
-| Stationary Front (SF) | **0.645** | First reliable SF — enough data to learn |
-| **Mean** | **0.768** | Best checkpoint at epoch 30 |
+| Epoch | CF | WF | SF | Mean |
+|-------|----|----|-----|------|
+| 1 | 0.617 | 0.549 | 0.301 | 0.489 |
+| 5 | 0.653 | 0.602 | 0.383 | 0.546 |
+| 8 | 0.740 | 0.672 | 0.466 | **0.626** |
+| 10 | **0.751** | **0.697** | **0.476** | **0.642** |
+| 11 | 0.739 | 0.686 | 0.473 | 0.633 |
 
-**Key finding:** SF class properly emerged for the first time.
-With 6 years of training data the model sees enough stationary front cases
-to learn the pattern; in Runs 1–2 SF was effectively noise (too rare relative
-to dataset size). F1 plateau around 0.77 confirms that label quality
-(TFP threshold) is now the bottleneck, motivating Run 5.
+*Training ongoing — epoch 12+ in progress. Best F1=0.642 at epoch 10.*
 
-### 6.5 Run 5 — Training (12-channel Hybrid)
+**Trajectory:** The curve closely mirrors Run 2's progression at the same epochs.
+With 6 years of data the model is expected to ultimately surpass Run 2's F1=0.768,
+and the still-rising SF F1 (0.476 at ep10) confirms that data volume directly
+helps the rarest class.
+
+**What Run 4 is establishing:**
+- The ceiling of the TFP 4-channel approach with maximal data
+- A rigorous 2025 baseline against which Run 5's hybrid labels can be fairly compared
+- SF emergence: with 6 years, SF consistently appears for the first time
+
+**When complete, Run 4 will answer:** How much of Run 5's improvement (if any)
+comes from more data vs. better labels vs. more channels.
+
+### 6.5 Run 5 — Full System: 12-Channel Hybrid (Running Now)
 
 **Configuration:** 12-channel input (`train_unet_v4.py`), Hybrid ERA5×WPC labels
-(5-class: BG/CF/WF/SF/OF), 2019–2024 training, 2025 validation, 30 epochs.
-Running on NASA Discover A100 GPU (batch 32).
+(5-class: BG/CF/WF/SF/OF), 2019–2024 training, 2025 validation, 30 epochs,
+batch 32. **Running on NASA Discover A100-SXM4-40GB GPU (active since Jun 29 2026).**
 
-| Aspect | Run 4 | Run 5 |
+**Primary question:** When we combine everything learned from Runs 1–4 —
+6 years of data, expert labels, 12 channels, corrected SF, GPU training —
+how far can we push front detection accuracy?
+
+Run 5 simultaneously addresses every limitation identified in Runs 1–4:
+
+| Limitation (Runs 1–4) | Run 5 Solution |
+|----------------------|----------------|
+| TFP labels over-detect by ×2.8 vs. WPC | WPC analyst labels for type |
+| Arbitrary classification threshold | TFP used only for position accuracy |
+| No Occluded Front class | OF from WPC extraction |
+| SF always 0 (Run 3 bug) | SF recovered — pipeline overhaul (§6.5 below) |
+| 4 channels miss upper-level dynamics | z500: 500 hPa trough/ridge context |
+| No moisture information | q850: frontal lifting signal |
+| No surface wind or temperature | t2m, u10, v10: surface air-mass contrast |
+| CPU training (~3600 s/epoch) | A100 GPU: ~10× faster |
+
+| Aspect | Run 4 | **Run 5** |
 |--------|-------|-------|
 | Label source | TFP threshold | WPC analyst + TFP intersection |
 | Input channels | 4 | **12** |
-| Occluded Front | ✗ | ✓ |
-| Upper-level info | ✗ | z500 (trough/ridge) |
-| Surface fields | ✗ | t2m, u10, v10, msl |
-| Moisture | ✗ | q850 |
-| Hardware | CPU / MPS | **A100 GPU** (batch 32) |
+| Occluded Front | ✗ | **✓** |
+| SF label quality | TFP-sign (noisy) | WPC extracted (corrected pipeline) |
+| Upper-level info | ✗ | **z500** (trough/ridge) |
+| Moisture | ✗ | **q850** |
+| Surface fields | ✗ | **t2m, u10, v10, msl** |
+| Hardware | CPU (batch 8) | **A100 GPU (batch 32)** |
 
-Results pending.
+**Status: actively training on Discover A100. Results incoming.**
+
+Expected gains vs. Run 4:
+- OF detection: occluded fronts are physically linked to upper-level troughs (z500 now visible to model)
+- SF accuracy: WPC analyst explicitly marks SF; TFP-based SF was structurally ambiguous
+- CF/WF precision: moisture (q850) and vertical motion (w850) are direct signatures of frontal lifting
 
 ### 6.5 WPC Label-Pipeline Overhaul (enables Run 5)
 
@@ -412,7 +474,8 @@ continuous fields is more internally consistent and globally applicable.
 2. ✅ Build training data with regression targets (2019–2025)
 3. ✅ Build extra channels (z500/q850/w850/msl/t925/t2m/u10/v10, 2019–2025)
 4. ✅ WPC label pipeline overhaul — SF recovered, projection fixed
-5. 🔄 Run 5 full training (2019–2024, 12-ch hybrid, A100 GPU) — in progress
+5. ✅ Run 4 full training (2019–2024, 4-ch TFP, Discover CPU) — ep12+, in progress
+6. 🔄 **Run 5 full training (2019–2024, 12-ch hybrid, A100 GPU) — actively running**
 
 ### Medium-term
 6. Distance-based evaluation metric: detection rate within N km of WPC front

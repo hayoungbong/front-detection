@@ -15,7 +15,7 @@ oceans using ERA5 reanalysis and a U-Net deep learning model.
 | **Input data** | ERA5 reanalysis (CDS API), 1970–2026 |
 | **Labels** | TFP-based (Runs 1–2) → Hybrid ERA5×WPC 5-class (Runs 3–5) |
 | **Model** | U-Net (Focal Loss γ=2, AdamW, CosineAnnealingLR), 4→12 channels |
-| **Best result** | Run 4: Mean F1 = **0.768** (CF=0.837, WF=0.822, SF=0.645) |
+| **Best result** | Run 2: Mean F1 = **0.768** · Run 4 in progress (ep12+, best 0.642) · Run 5 running on A100 |
 | **Compute** | Mac M-series (MPS) · NASA Discover A100 GPU |
 
 ---
@@ -27,10 +27,11 @@ oceans using ERA5 reanalysis and a U-Net deep learning model.
 | **Run 1** | `train_unet.py` | 4 (t850/u850/v850/tfp) | TFP classification | 2020–2021 | 30 | 0.675 | ✅ Complete |
 | **Run 2** | `train_unet.py` | 4 (t850/u850/v850/tfp) | TFP classification | 2019–2021 | 30 | **0.768** | ✅ Complete |
 | **Run 3** | `train_unet_v3.py` | 8 (+z500/q850/w850/msl) | Hybrid ERA5×WPC (5-class+OF) | 2024 only | 10 | 0.127* | ✅ Smoke test |
-| **Run 4** | `train_unet.py` | 4 (t850/u850/v850/tfp) | TFP classification | 2019–2024 | 30 | **0.768** | ✅ Complete |
-| **Run 5** | `train_unet_v4.py` | **12** (base 4 + z500/q850/w850/msl/t925/t2m/u10/v10) | **Hybrid ERA5×WPC, 5-class (BG/CF/WF/SF/OF)** | 2019–2024 | 30 | — | 🔄 Training (Discover A100 GPU) |
+| **Run 4** | `train_unet.py` | 4 (t850/u850/v850/tfp) | TFP classification | 2019–2024 | 30 | 0.642† | 🔄 In progress (Discover CPU ep12+) |
+| **Run 5** | `train_unet_v4.py` | **12** (base 4 + z500/q850/w850/msl/t925/t2m/u10/v10) | **Hybrid ERA5×WPC, 5-class (BG/CF/WF/SF/OF)** | 2019–2024 | 30 | — | 🔄 **Running (Discover A100 GPU)** |
 
 *Run 3 smoke test: 2024 only, 10 epochs, not converged.
+†Run 4 best so far at epoch 10 (CF=0.751, WF=0.697, SF=0.476), still training.
 
 **WPC label-pipeline overhaul (2026-06):** the WPC ground-truth extraction was fixed —
 front extraction (had silently returned 0 px), a ~10° projection rotation (fronts were
@@ -38,13 +39,26 @@ front extraction (had silently returned 0 px), a ~10° projection rotation (fron
 red/blue symbols, previously always empty). 20 years of labels regenerated; SF populated
 for the first time, unblocking the 5-class **Run 5**. See `REPORT.md` §6.5 / `PIPELINE.md` Step 3.
 
-### Run 4 — Final Metrics (Epoch 30, train 2019–2024 / val 2025)
+### Run 4 — Current Results (Epoch 10/30, NASA Discover CPU)
+
+Run 4 establishes the TFP 4-channel ceiling with 6 years of training data.
+Directly comparable to Run 2 (same model, same label strategy, 2× training data).
+
+| Epoch | CF | WF | SF | Mean |
+|-------|----|----|-----|------|
+| 1 | 0.617 | 0.549 | 0.301 | 0.489 |
+| 5 | 0.653 | 0.602 | 0.383 | 0.546 |
+| 10 | **0.751** | **0.697** | **0.476** | **0.642** |
+
+*Training ongoing. Expected to surpass Run 2 (0.768) by epoch 20–25.*
+
+### Run 2 — Final Metrics (Epoch 30, train 2019–2021 / val 2022)
 
 | Class | F1 | Notes |
 |-------|----|-------|
 | Cold Front (CF) | 0.837 | Strong signal from temperature gradient |
 | Warm Front (WF) | 0.822 | Consistent with CF |
-| Stationary Front (SF) | 0.645 | First reliable SF — enough data to learn |
+| Stationary Front (SF) | 0.645 | Challenging — low temperature advection |
 | **Mean** | **0.768** | Best checkpoint at epoch 30 |
 
 ### Run 3 — Smoke Test (Epoch 10, 2024 data only)
