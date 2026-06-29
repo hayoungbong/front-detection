@@ -13,9 +13,9 @@ oceans using ERA5 reanalysis and a U-Net deep learning model.
 | **Domain** | 5–85°N, 180°W–10°E (ETC full lifecycle coverage) |
 | **Resolution** | 0.25°, 6-hourly (00/06/12/18 UTC) |
 | **Input data** | ERA5 reanalysis (CDS API), 1970–2026 |
-| **Labels** | TFP-based (Runs 1–2) → Hybrid ERA5×WPC (Run 3) → Regression targets (Run 4+) |
-| **Model** | U-Net (Focal Loss γ=2, AdamW, CosineAnnealingLR) |
-| **Best result** | Run 2: Mean F1 = **0.768** (CF=0.837, WF=0.822, SF=0.645) |
+| **Labels** | TFP-based (Runs 1–2) → Hybrid ERA5×WPC 5-class (Runs 3–5) |
+| **Model** | U-Net (Focal Loss γ=2, AdamW, CosineAnnealingLR), 4→12 channels |
+| **Best result** | Run 2: Mean F1 = **0.768** \| Run 4 (ep 14/30): Mean F1 = **0.685** and rising |
 
 ---
 
@@ -25,12 +25,12 @@ oceans using ERA5 reanalysis and a U-Net deep learning model.
 |-----|--------|---------------|----------------|------------|--------|---------|--------|
 | **Run 1** | `train_unet.py` | 4 (t850/u850/v850/tfp) | TFP classification | 2020–2021 | 30 | 0.675 | ✅ Complete |
 | **Run 2** | `train_unet.py` | 4 (t850/u850/v850/tfp) | TFP classification | 2019–2021 | 30 | **0.768** | ✅ Complete |
-| **Run 3** | `train_unet_v3.py` | 8 (+z500/q850/w850/msl) | Hybrid ERA5×WPC (5-class+OF) | 2024 only | 10 | 0.127* | 🔄 Smoke test only |
-| **Run 4** | `train_unet.py` | 4 (t850/u850/v850/tfp) | TFP classification | 2019–2024 | 30 | 0.588†| 🔄 In progress |
-| **Run 5** | `train_unet_v4.py` | 4+ | **Hybrid ERA5×WPC, 5-class (BG/CF/WF/SF/OF)** | 2019–2024 | 30 | — | 📋 Enabled (next) |
+| **Run 3** | `train_unet_v3.py` | 8 (+z500/q850/w850/msl) | Hybrid ERA5×WPC (5-class+OF) | 2024 only | 10 | 0.127* | ✅ Smoke test |
+| **Run 4** | `train_unet.py` | 4 (t850/u850/v850/tfp) | TFP classification | 2019–2024 | 30 | 0.685†| 🔄 In progress (ep 14/30) |
+| **Run 5** | `train_unet_v4.py` | **12** (base 4 + z500/q850/w850/msl/t925/t2m/u10/v10) | **Hybrid ERA5×WPC, 5-class (BG/CF/WF/SF/OF)** | 2019–2024 | 30 | — | ⏳ Queued (auto-starts after Run 4) |
 
-*Run 3 smoke test (1 year, 10 epochs, not converged). Full Run 3 → Run 4 pending new ERA5 downloads.
-†Run 4 smoke test at 5 epochs (trending upward — 30-epoch run in progress).
+*Run 3 smoke test: 2024 only, 10 epochs, not converged.
+†Run 4 at epoch 14/30 (CF=0.768, WF=0.742, SF=0.546, trending upward).
 
 **WPC label-pipeline overhaul (2026-06):** the WPC ground-truth extraction was fixed —
 front extraction (had silently returned 0 px), a ~10° projection rotation (fronts were
@@ -57,14 +57,60 @@ for the first time, unblocking the 5-class **Run 5**. See `REPORT.md` §6.5 / `P
 | Occluded Front (OF) | 0.063 | **First successful OF detection** |
 | **Mean** | **0.127** | Not converged — 1 year only |
 
-### Run 4 — Smoke Test (Epoch 5, train 2021–2024 / val 2025)
+### Run 4 — In Progress (Epoch 14/30, train 2019–2024 / val 2025)
 
 | Class | F1 | Notes |
 |-------|----|-------|
-| Cold Front (CF) | 0.681 | Strong and improving |
-| Warm Front (WF) | 0.657 | Consistent with CF |
-| Stationary Front (SF) | 0.426 | Best SF result at 5 epochs |
-| **Mean** | **0.588** | Trending upward — full 30-epoch run in progress |
+| Cold Front (CF) | 0.768 | Matches Run 2 best |
+| Warm Front (WF) | 0.742 | Consistent with CF |
+| Stationary Front (SF) | 0.546 | Best SF so far — still improving |
+| **Mean** | **0.685** | Epoch 14/30, continues training |
+
+---
+
+## Run 5: 12-Channel Hybrid (Queued)
+
+Run 5 is the first full hybrid training run — combining ERA5 thermodynamics
+(position accuracy) with WPC analyst labels (expert type judgment) and
+expanded 12-channel atmospheric input.
+
+### 12-Channel Input
+
+| Channel | Variable | Source | Physical role |
+|---------|----------|--------|---------------|
+| 1 | `t850` | ERA5 PL | 850 hPa temperature |
+| 2 | `u850` | ERA5 PL | 850 hPa zonal wind |
+| 3 | `v850` | ERA5 PL | 850 hPa meridional wind |
+| 4 | `tfp_850` | Derived | Thermal Front Parameter |
+| 5 | `z500` | ERA5 PL | 500 hPa geopotential (trough/ridge) |
+| 6 | `q850` | ERA5 PL | 850 hPa specific humidity (moisture transport) |
+| 7 | `w850` | ERA5 PL | 850 hPa vertical velocity (ascent/descent) |
+| 8 | `msl` | ERA5 SFC | Mean sea level pressure (synoptic pattern) |
+| 9 | `t925` | ERA5 PL | 925 hPa temperature (boundary layer) |
+| 10 | `t2m` | ERA5 SFC | 2 m temperature |
+| 11 | `u10` | ERA5 SFC | 10 m zonal wind |
+| 12 | `v10` | ERA5 SFC | 10 m meridional wind |
+
+### 5 Output Classes
+
+| Label | Class | Description |
+|-------|-------|-------------|
+| 0 | BG | Background (no front) |
+| 1 | CF | Cold Front |
+| 2 | WF | Warm Front |
+| 3 | SF | Stationary Front |
+| 4 | OF | Occluded Front |
+
+SF (Stationary Front) is now fully populated for the first time, after
+the WPC label pipeline overhaul that recovered SF from the alternating
+red/blue symbol pattern (previously always 0 px).
+
+### Auto-Chain
+Run 5 starts automatically after Run 4 via `run5_chain.sh`:
+1. Wait for Run 4 to finish (process-based polling)
+2. Build `extra_channels_YYYY.nc` for 2019–2025 from ERA5 regional (no new downloads)
+3. Rebuild hybrid labels 2022–2025 with corrected WPC (SF populated)
+4. Launch `train_unet_v4.py --train 2019 2024 --val 2025 2025 --epochs 30`
 
 ---
 
@@ -146,10 +192,9 @@ build_training_data.py
          └──────────────┬──────────────────┘
                         ▼
                U-Net Training
-         train_unet_v4.py (Run 4)
-         12-channel input
-         5-class or regression output
-         Focal Loss, AdamW, CosineAnnealingLR
+         train_unet_v4.py (Run 5)
+         12-channel input, 5-class output
+         Focal Loss γ=2, AdamW, CosineAnnealingLR
                         │
                         ▼
               Evaluation vs WPC analyst
