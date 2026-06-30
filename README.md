@@ -9,6 +9,9 @@ with expert WPC front *types* — giving an automatic, reproducible front produc
 that can be generated for any period and linked to hurricanes, drought, and
 wildfire.
 
+TFP (Thermal Front Parameter) is a scalar field derived purely from ERA5
+temperature gradients that marks where air-mass boundaries are sharpening.
+
 ---
 
 ## Method
@@ -170,9 +173,9 @@ TensorFlow front-detection toolkit. Our project
 re-implements and substantially extends it:
 
 - **PyTorch re-implementation** with mixed-precision and multi-GPU (4×A100) training.
-- **Hybrid labels** — fusing objective ERA5/TFP front *positions* with expert WPC
-  *types* (extracted directly from analysis archives), enabling **occluded-front
-  detection** that TFP alone cannot achieve.
+- **Hybrid labels** — fusing objective ERA5/TFP (Thermal Front Parameter) front
+  *positions* with expert WPC *types* (extracted directly from analysis archives),
+  enabling **occluded-front detection** that TFP alone cannot achieve.
 - **Regression branch** — a threshold-free, WPC-independent alternative that
   predicts continuous frontal fields (new; not in the original).
 - **Downstream applications** — hurricane transition, drought, wildfire, and
