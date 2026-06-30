@@ -356,46 +356,81 @@ helps the rarest class.
 **When complete, Run 4 will answer:** How much of Run 5's improvement (if any)
 comes from more data vs. better labels vs. more channels.
 
-### 6.5 Run 5 — Full System: 12-Channel Hybrid (Running Now)
+### 6.5 Run 5 — Full System: 12-Channel Hybrid
 
-**Configuration:** 12-channel input (`train_unet_v4.py`), Hybrid ERA5×WPC labels
-(5-class: BG/CF/WF/SF/OF), 2019–2024 training, 2025 validation, 30 epochs,
-batch 32. **Running on NASA Discover A100-SXM4-40GB GPU (active since Jun 29 2026).**
+Run 5 went through two stages separated by a label-pipeline diagnosis.
+
+#### Run 5a — 12-Channel Baseline (Complete, ep28, F1=0.693)
+
+**Configuration:** 12-channel input, hybrid labels (nominally), 2019–2024 training,
+2025 validation, 30 epochs, batch 32, NASA Discover A100.
+
+Run 5a completed but OF was silently zero throughout training — class weight for OF=0.0,
+F1_OF=0.000 at all epochs. Best mean F1=0.693 at ep28 (effectively a 12-channel TFP run
+because the hybrid labels contained no OF pixels).
+
+**Root cause diagnosis** revealed two bugs in `build_hybrid_discover.py`:
+
+| Bug | Symptom | Cause | Fix |
+|-----|---------|-------|-----|
+| **Priority overwrite** | OF inflated to 626 K pixels | OF assigned last with no TFP requirement, overwriting CF/WF/SF; OR when TFP threshold too strict, OF=0 | OF assigned last (highest priority) WITH TFP filter; same threshold as other classes |
+| **N-S coordinate flip** | OF collapsed to 26 K (should be 104 K) | Discover training lat ascending (15→70N), WPC extraction lat descending (70→15N) — intersecting by array index mirror-flips masks; OF near TFP threshold, most sensitive to spatial mismatch | `wpc = wpc.reindex(lat=tr["lat"].values, lon=tr["lon"].values, fill_value=0)` |
+
+After fixes, 2019 label pixel counts: CF=524,285 WF=215,365 SF=352,034 OF=104,400.
+OF at ~8% of front pixels is consistent with Berry et al. (2011) climatology
+(CF > SF > WF > OF ordering), confirming the corrected labels are physically plausible.
+
+#### Run 5b — Corrected Hybrid Labels (Active, 2026-06-29)
+
+**Configuration:** Same 12-channel setup, corrected `build_hybrid_discover.py`,
+rebuilt hybrid labels 2019–2025, NASA Discover A100-SXM4-40GB (batch 32).
 
 **Primary question:** When we combine everything learned from Runs 1–4 —
-6 years of data, expert labels, 12 channels, corrected SF, GPU training —
+6 years of data, expert labels, 12 channels, corrected SF and OF, GPU training —
 how far can we push front detection accuracy?
 
-Run 5 simultaneously addresses every limitation identified in Runs 1–4:
+Run 5b simultaneously addresses every limitation identified in Runs 1–4:
 
-| Limitation (Runs 1–4) | Run 5 Solution |
+| Limitation (Runs 1–4) | Run 5b Solution |
 |----------------------|----------------|
 | TFP labels over-detect by ×2.8 vs. WPC | WPC analyst labels for type |
-| Arbitrary classification threshold | TFP used only for position accuracy |
-| No Occluded Front class | OF from WPC extraction |
-| SF always 0 (Run 3 bug) | SF recovered — pipeline overhaul (§6.5 below) |
+| No Occluded Front class | OF from WPC extraction (corrected labels) |
+| SF always 0 (Run 3 bug) | SF recovered — WPC label-pipeline overhaul |
 | 4 channels miss upper-level dynamics | z500: 500 hPa trough/ridge context |
 | No moisture information | q850: frontal lifting signal |
 | No surface wind or temperature | t2m, u10, v10: surface air-mass contrast |
-| CPU training (~3600 s/epoch) | A100 GPU: ~10× faster |
+| CPU training (~3600 s/epoch) | A100 GPU: ~120 s/epoch (~30× faster) |
 
-| Aspect | Run 4 | **Run 5** |
-|--------|-------|-------|
-| Label source | TFP threshold | WPC analyst + TFP intersection |
-| Input channels | 4 | **12** |
-| Occluded Front | ✗ | **✓** |
-| SF label quality | TFP-sign (noisy) | WPC extracted (corrected pipeline) |
-| Upper-level info | ✗ | **z500** (trough/ridge) |
-| Moisture | ✗ | **q850** |
-| Surface fields | ✗ | **t2m, u10, v10, msl** |
-| Hardware | CPU (batch 8) | **A100 GPU (batch 32)** |
+**Class weights (inverse-frequency, 2019–2024 hybrid labels):**
 
-**Status: actively training on Discover A100. Results incoming.**
+| BG | CF | WF | SF | OF |
+|----|----|----|----|----|
+| 0.05 | 0.85 | 1.24 | 0.95 | **1.91** |
 
-Expected gains vs. Run 4:
-- OF detection: occluded fronts are physically linked to upper-level troughs (z500 now visible to model)
-- SF accuracy: WPC analyst explicitly marks SF; TFP-based SF was structurally ambiguous
-- CF/WF precision: moisture (q850) and vertical motion (w850) are direct signatures of frontal lifting
+OF carries the highest weight — the model is explicitly penalized for missing the rarest front type.
+
+**Early epoch results (2025 validation):**
+
+| Epoch | CF | WF | SF | OF | Mean | Time/ep |
+|-------|----|----|----|----|------|---------|
+| 1 | 0.181 | 0.092 | 0.223 | **0.081** | 0.144 | 123 s |
+| 2 | 0.259 | 0.117 | 0.227 | 0.084 | 0.172 | 121 s |
+| 3 | 0.260 | 0.132 | 0.264 | **0.172** | 0.207 | 120 s |
+
+**Key observation:** OF F1 > 0 from epoch 1. In Run 5a, OF was never detected across 28 epochs.
+The jump from 0.081→0.172 between ep1 and ep3 indicates the model is actively learning OF structure,
+not just sporadically producing it. This is the first full-scale (6-year, 12-channel) run to detect
+occluded fronts.
+
+| Aspect | Run 4 | Run 5a | **Run 5b** |
+|--------|-------|--------|-------|
+| Label source | TFP threshold | Hybrid (OF broken) | **Hybrid corrected** |
+| Input channels | 4 | 12 | **12** |
+| Occluded Front | ✗ | ✗ | **✓ (F1=0.172 ep3)** |
+| Best F1 so far | 0.642 (ep10) | 0.693 (ep28) | 0.207 (ep3, rising) |
+| Hardware | CPU | A100 | **A100** |
+
+*Training ongoing — final results expected at ep30.*
 
 ### 6.5 WPC Label-Pipeline Overhaul (enables Run 5)
 
@@ -482,8 +517,11 @@ continuous fields is more internally consistent and globally applicable.
 2. ✅ Build training data with regression targets (2019–2025)
 3. ✅ Build extra channels (z500/q850/w850/msl/t925/t2m/u10/v10, 2019–2025)
 4. ✅ WPC label pipeline overhaul — SF recovered, projection fixed
-5. ✅ Run 4 full training (2019–2024, 4-ch TFP, Discover CPU) — ep12+, in progress
-6. 🔄 **Run 5 full training (2019–2024, 12-ch hybrid, A100 GPU) — actively running**
+5. ✅ Diagnose and fix Run 5 hybrid label bugs (OF priority + N-S flip on Discover)
+6. ✅ Rebuild hybrid labels 2019–2025 on Discover with corrected pipeline
+7. ✅ Run 5a completed (12ch, ep28, F1=0.693 — OF=0 due to label bugs, now diagnosed)
+8. 🔄 **Run 4 full training (2019–2024, 4-ch TFP, Discover CPU) — in progress**
+9. 🔄 **Run 5b full training (2019–2024, 12-ch hybrid corrected, A100 GPU) — ep3+, OF F1=0.172**
 
 ### Medium-term
 6. Distance-based evaluation metric: detection rate within N km of WPC front
