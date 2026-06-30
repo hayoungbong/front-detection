@@ -83,8 +83,9 @@ AFFINE = (
 )
 
 # ── Hybrid label constants ─────────────────────────────────────────────────
-TFP_THRESH  = 0.12   # |TFP| threshold (K/m²×10⁶)
-DILATE_CELLS = 2     # WPC dilation ±2 cells ≈ ±50 km
+TFP_THRESH    = 0.12   # |TFP| threshold for CF/WF/SF
+TFP_THRESH_OF = 0.05   # weaker threshold for OF (occluded fronts have lower 850hPa gradient)
+DILATE_CELLS  = 2      # WPC dilation ±2 cells ≈ ±50 km
 LABEL = {"BG": 0, "CF": 1, "WF": 2, "SF": 3, "OF": 4}
 
 
@@ -351,10 +352,10 @@ def build_hybrid_year(year: int, overwrite: bool = False) -> Path | None:
         sf_d = binary_dilation(wpc_sf[wi].astype(bool), struct[0])
         of_d = binary_dilation(wpc_of[wi].astype(bool), struct[0])
 
+        of_mask = tfp_t > TFP_THRESH_OF
         lbl = np.zeros((H, W), dtype=np.int8)
         # Priority: CF > WF > SF > OF
-        # OF assigned first (no TFP requirement), then confirmed types overwrite
-        lbl[of_d] = LABEL["OF"]
+        lbl[of_mask & of_d] = LABEL["OF"]
         lbl[front_mask & sf_d] = LABEL["SF"]
         lbl[front_mask & wf_d] = LABEL["WF"]
         lbl[front_mask & cf_d] = LABEL["CF"]
