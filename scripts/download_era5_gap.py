@@ -4,17 +4,17 @@ ERA5 regional download for NASA Discover — fills gap before /css/era5/ coverag
 Domain  : 85°N–5°N, 180°W–10°E  (North America + North Atlantic)
           Same as Mac download_era5_regional.py
 
-/css/era5/ already has:
-  pressure-level : 2018–present
-  single-level   : 2007–present
+/css/era5/ actual coverage (verified 2026-06-29):
+  pressure-level : Y2018/M11–M12 only, then 2019–present  (M01–M10 2018 missing!)
+  single-level   : Y2007/M01–present  (may be partial)
 
-Default fills the gap:
-  PL  1940–2017  (run with --pl  START END to override)
-  SFC 1940–2006  (run with --sfc START END to override)
+Default fills the gap safely:
+  PL  1940–2018  (covers 2018 M01–M10 missing from CSS)
+  SFC 1940–2007  (covers full 2007 in case CSS is partial)
 
-Storage estimate (regional):
-  PL  per year  ~27 GB   → 1940–2017 (78 yr) ~2.1 TB
-  SFC per year  ~ 4 GB   → 1940–2006 (67 yr) ~0.3 TB
+Storage estimate (regional, North America + North Atlantic):
+  PL  per year  ~27 GB   → 1940–2018 (79 yr) ~2.1 TB
+  SFC per year  ~ 4 GB   → 1940–2007 (68 yr) ~0.3 TB
 
 Prerequisites:
   pip install --user cdsapi
@@ -47,9 +47,9 @@ PL_DIR   = BASE_DIR / 'pressure_level'
 SFC_DIR  = BASE_DIR / 'single_level'
 LOG_FILE = BASE_DIR / 'download_gap.log'
 
-# /css/era5/ coverage — do not overlap
-CSS_PL_FIRST_YEAR  = 2018
-CSS_SFC_FIRST_YEAR = 2007
+# Safe defaults (CSS PL only has 2018 M11-M12; SFC 2007 may be partial)
+CSS_PL_FIRST_YEAR  = 2019   # download through 2018 to fill M01-M10 gap
+CSS_SFC_FIRST_YEAR = 2008   # download through 2007 to be safe
 
 # ── ERA5 request parameters (identical to Mac download_era5_regional.py) ───────
 AREA   = [85, -180, 5, 10]   # [N, W, S, E] — North America + North Atlantic
@@ -157,10 +157,6 @@ def run_download(pl_range, sfc_range, workers: int):
     tasks = []
     if pl_range:
         start, end = pl_range
-        if end >= CSS_PL_FIRST_YEAR:
-            log.warning('PL end year %d overlaps /css/era5/ (starts %d) — clamping to %d',
-                        end, CSS_PL_FIRST_YEAR, CSS_PL_FIRST_YEAR - 1)
-            end = CSS_PL_FIRST_YEAR - 1
         for year in range(end, start - 1, -1):
             for month in range(12, 0, -1):
                 if (year, month) <= today:
@@ -168,10 +164,6 @@ def run_download(pl_range, sfc_range, workers: int):
 
     if sfc_range:
         start, end = sfc_range
-        if end >= CSS_SFC_FIRST_YEAR:
-            log.warning('SFC end year %d overlaps /css/era5/ (starts %d) — clamping to %d',
-                        end, CSS_SFC_FIRST_YEAR, CSS_SFC_FIRST_YEAR - 1)
-            end = CSS_SFC_FIRST_YEAR - 1
         for year in range(end, start - 1, -1):
             for month in range(12, 0, -1):
                 if (year, month) <= today:
