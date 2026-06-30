@@ -48,6 +48,10 @@ IN_CH       = 12
 N_CLASSES   = 5
 CLASS_NAMES = ['BG', 'CF', 'WF', 'SF', 'OF']
 
+# Label source: hybrid (5-class, ERA5×WPC) [default] or TFP (4-class, ERA5 only).
+# Run 5: hybrid labels.  Run 6: TFP labels (same 12 channels, isolates label effect).
+USE_TFP = False
+
 BASE_VARS  = ['t850', 'u850', 'v850', 'tfp_850']               # from hybrid NC
 EXTRA_VARS = ['z500', 'q850', 'w850', 'msl', 't925', 't2m', 'u10', 'v10']  # from extra_channels NC
 ALL_VARS   = BASE_VARS + EXTRA_VARS
@@ -125,9 +129,10 @@ class HybridFrontDataset(Dataset):
 
             h = xr.open_dataset(hp)
             e = xr.open_dataset(ep)
-            # Discover: hybrid has labels only; ERA5 vars are in era5_YYYY_training.nc
+            # Discover: hybrid has labels only; ERA5 vars are in era5_YYYY_training.nc.
+            # TFP mode (Run 6): always need era5_training for the 4-class TFP labels.
             tp = EXTRA_DIR / f'era5_{year}_training.nc'
-            b = xr.open_dataset(tp) if ('t850' not in h and tp.exists()) else h
+            b = xr.open_dataset(tp) if (('t850' not in h or USE_TFP) and tp.exists()) else h
 
             # Align timestamps (inner)
             common = np.intersect1d(h.time.values, e.time.values)
@@ -144,7 +149,9 @@ class HybridFrontDataset(Dataset):
                 channels.append((arr - mu) / sigma)
 
             x_all = np.stack(channels, axis=1)        # [T, 12, H, W]
-            y_all = h['front_label'].values.astype(np.int8)  # [T, H, W]
+            # Run 6 (TFP): labels from era5_training (0-3).  Run 5 (hybrid): from hybrid (0-4).
+            y_src = b if (USE_TFP and b is not h) else h
+            y_all = y_src['front_label'].values.astype(np.int8)  # [T, H, W]
             h.close(); e.close()
             if b is not h: b.close()
 
@@ -236,9 +243,11 @@ class FocalLoss(nn.Module):
 def class_weights(years: list, device) -> torch.Tensor:
     counts = np.zeros(N_CLASSES, dtype=np.float64)
     for year in years:
-        hp = HYBRID_DIR / f'hybrid_{year}.nc'
-        if not hp.exists(): continue
-        ds = xr.open_dataset(hp)
+        # TFP mode (Run 6): labels in era5_training.  Hybrid mode (Run 5): in hybrid NC.
+        src = (EXTRA_DIR / f'era5_{year}_training.nc') if USE_TFP \
+              else (HYBRID_DIR / f'hybrid_{year}.nc')
+        if not src.exists(): continue
+        ds = xr.open_dataset(src)
         labels = ds['front_label'].values
         for c in range(N_CLASSES):
             counts[c] += (labels == c).sum()
@@ -280,7 +289,8 @@ def train(args):
     val_years   = list(range(args.val[0],   args.val[1]   + 1))
     print(f'Train: {train_years}  Val: {val_years}')
 
-    run_tag     = f'unet_v4_hybrid_{train_years[0]}-{train_years[-1]}_e{args.epochs}_b{args.batch}'
+    label_tag   = 'tfp' if USE_TFP else 'hybrid'   # Run 6 = tfp, Run 5 = hybrid
+    run_tag     = f'unet_v4_{label_tag}_{train_years[0]}-{train_years[-1]}_e{args.epochs}_b{args.batch}'
     log_path    = MODEL_DIR / f'{run_tag}.log'
     csv_path    = MODEL_DIR / f'{run_tag}_metrics.csv'
     resume_ckpt = MODEL_DIR / f'{run_tag}_resume.pt'
@@ -504,6 +514,7 @@ def predict(args):
 # ── Main ───────────────────────────────────────────────────────────────────
 def main():
     global HYBRID_DIR, EXTRA_DIR, MODEL_DIR  # allow CLI overrides
+    global USE_TFP, N_CLASSES, CLASS_NAMES   # label-source switch (Run 6)
 
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -515,6 +526,9 @@ def main():
     p.add_argument('--batch',      type=int,   default=8)
     p.add_argument('--lr',         type=float, default=1e-4)
     p.add_argument('--resume',     action='store_true')
+    p.add_argument('--tfp-labels', action='store_true',
+                   help='Run 6: train on 4-class TFP labels (from era5_YYYY_training.nc) '
+                        'with the same 12 channels, instead of 5-class hybrid labels')
     p.add_argument('--predict',    type=str,   default=None,
                    help='Run inference: e.g. 2026-01-15T00')
     p.add_argument('--data-root',  type=str,   default=None,
@@ -523,6 +537,15 @@ def main():
     p.add_argument('--extra-dir',  type=str,   default=None)
     p.add_argument('--model-dir',  type=str,   default=None)
     args = p.parse_args()
+
+    # Run 6: switch to 4-class TFP labels (BG/CF/WF/SF), same 12 input channels
+    if args.tfp_labels:
+        USE_TFP     = True
+        N_CLASSES   = 4
+        CLASS_NAMES = ['BG', 'CF', 'WF', 'SF']
+        print('Label source: TFP 4-class (Run 6) — 12 channels, no OF')
+    else:
+        print('Label source: hybrid 5-class (Run 5) — 12 channels, with OF')
 
     if args.data_root:
         root = Path(args.data_root)
