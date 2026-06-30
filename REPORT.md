@@ -380,7 +380,7 @@ After fixes, 2019 label pixel counts: CF=524,285 WF=215,365 SF=352,034 OF=104,40
 OF at ~8% of front pixels is consistent with Berry et al. (2011) climatology
 (CF > SF > WF > OF ordering), confirming the corrected labels are physically plausible.
 
-#### Run 5b — Corrected Hybrid Labels (Active, 2026-06-29)
+#### Run 5b — Corrected Hybrid Labels (Complete, 2026-06-29)
 
 **Configuration:** Same 12-channel setup, corrected `build_hybrid_discover.py`,
 rebuilt hybrid labels 2019–2025, NASA Discover A100-SXM4-40GB (batch 32).
@@ -409,28 +409,28 @@ Run 5b simultaneously addresses every limitation identified in Runs 1–4:
 
 OF carries the highest weight — the model is explicitly penalized for missing the rarest front type.
 
-**Early epoch results (2025 validation):**
+**Results (2025 validation):**
 
 | Epoch | CF | WF | SF | OF | Mean | Time/ep |
 |-------|----|----|----|----|------|---------|
-| 1 | 0.181 | 0.092 | 0.223 | **0.081** | 0.144 | 123 s |
+| 1 | 0.181 | 0.092 | 0.223 | 0.081 | 0.144 | 123 s |
 | 2 | 0.259 | 0.117 | 0.227 | 0.084 | 0.172 | 121 s |
-| 3 | 0.260 | 0.132 | 0.264 | **0.172** | 0.207 | 120 s |
+| 3 | 0.260 | 0.132 | 0.264 | 0.172 | 0.207 | 120 s |
+| **Best (ep23)** | — | — | — | **0.242** | **0.255** | — |
+| 30 | — | — | — | — | 0.249–0.255 (plateau) | — |
 
-**Key observation:** OF F1 > 0 from epoch 1. In Run 5a, OF was never detected across 28 epochs.
-The jump from 0.081→0.172 between ep1 and ep3 indicates the model is actively learning OF structure,
-not just sporadically producing it. This is the first full-scale (6-year, 12-channel) run to detect
-occluded fronts.
+**Key observations:**
+- OF F1 > 0 from epoch 1 (Run 5a: OF=0 throughout 28 epochs).
+- Plateau at ep23–30 (F1 0.249–0.255); val_loss diverging from training loss (overfitting).
+- Next step: extend training set to 2007–2018 (~12 additional years of hybrid labels).
 
 | Aspect | Run 4 | Run 5a | **Run 5b** |
 |--------|-------|--------|-------|
 | Label source | TFP threshold | Hybrid (OF broken) | **Hybrid corrected** |
 | Input channels | 4 | 12 | **12** |
-| Occluded Front | ✗ | ✗ | **✓ (F1=0.172 ep3)** |
-| Best F1 so far | 0.642 (ep10) | 0.693 (ep28) | 0.207 (ep3, rising) |
+| Occluded Front | ✗ | ✗ | **✓ (OF=0.242)** |
+| Best F1 | 0.642 (ep10, CPU) | 0.693 (ep28) | **0.255 (ep23)** |
 | Hardware | CPU | A100 | **A100** |
-
-*Training ongoing — final results expected at ep30.*
 
 ### 6.5 WPC Label-Pipeline Overhaul (enables Run 5)
 
@@ -520,8 +520,10 @@ continuous fields is more internally consistent and globally applicable.
 5. ✅ Diagnose and fix Run 5 hybrid label bugs (OF priority + N-S flip on Discover)
 6. ✅ Rebuild hybrid labels 2019–2025 on Discover with corrected pipeline
 7. ✅ Run 5a completed (12ch, ep28, F1=0.693 — OF=0 due to label bugs, now diagnosed)
-8. 🔄 **Run 4 full training (2019–2024, 4-ch TFP, Discover CPU) — in progress**
-9. 🔄 **Run 5b full training (2019–2024, 12-ch hybrid corrected, A100 GPU) — ep3+, OF F1=0.172**
+8. 🔄 **Run 4 full training (2019–2024, 4-ch TFP) — CPU partial (ep10 F1=0.642); resubmitted on A100**
+9. ✅ **Run 5b full training (2019–2024, 12-ch hybrid corrected, A100) — complete, F1=0.255, OF=0.242**
+10. 🔄 **Run 6 (12-ch TFP labels, 2019–2024, A100) — queued**
+11. 🔄 **Run 7 (11-ch ERA5 regression, 2019–2024, A100) — queued**
 
 ### Medium-term
 6. Distance-based evaluation metric: detection rate within N km of WPC front

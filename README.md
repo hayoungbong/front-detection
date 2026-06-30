@@ -15,116 +15,56 @@ oceans using ERA5 reanalysis and a U-Net deep learning model.
 | **Input data** | ERA5 reanalysis (CDS API), 1970–2026 |
 | **Labels** | TFP-based (Runs 1–2) → Hybrid ERA5×WPC 5-class (Runs 3–5) |
 | **Model** | U-Net (Focal Loss γ=2, AdamW, CosineAnnealingLR), 4→12 channels |
-| **Best result** | Run 2: Mean F1 = **0.768** (4ch TFP) · Run 5a: **0.693** (12ch TFP baseline) · Run 5b: ep2 F1=0.172 (12ch hybrid, **OF detected**, running) |
+| **Best result** | Run 2: F1=**0.768** (4ch TFP) · Run 5b: F1=**0.255** (12ch hybrid corrected, OF=0.242, complete) |
 | **Compute** | Mac M-series (MPS) · NASA Discover A100 GPU |
 
 ---
 
 ## Training Run History
 
-| Run | Script | Input channels | Label strategy | Train data | Epochs | Mean F1 | Status |
-|-----|--------|---------------|----------------|------------|--------|---------|--------|
-| **Run 1** | `train_unet.py` | 4 (t850/u850/v850/tfp) | TFP classification | 2020–2021 | 30 | 0.675 | ✅ Complete |
-| **Run 2** | `train_unet.py` | 4 (t850/u850/v850/tfp) | TFP classification | 2019–2021 | 30 | **0.768** | ✅ Complete |
-| **Run 3** | `train_unet_v3.py` | 8 (+z500/q850/w850/msl) | Hybrid ERA5×WPC (5-class+OF) | 2024 only | 10 | 0.127* | ✅ Smoke test |
-| **Run 4** | `train_unet.py` | 4 (t850/u850/v850/tfp) | TFP classification | 2019–2024 | 30 | 0.642† | 🔄 In progress (Discover CPU) |
-| **Run 5a** | `train_unet_v4.py` | 12 | Hybrid (labels broken — OF=0 bug) | 2019–2024 | 28 | 0.693‡ | ✅ Complete (OF undetected) |
-| **Run 5b** | `train_unet_v4.py` | **12** (base 4 + z500/q850/w850/msl/t925/t2m/u10/v10) | **Hybrid ERA5×WPC corrected, 5-class (BG/CF/WF/SF/OF)** | 2019–2024 | 2/30 | 0.172 | 🔄 **Running (Discover A100 GPU)** |
+| Run | Channels | Label strategy | Training data | Best F1 | Status |
+|-----|---------|---------------|--------------|---------|--------|
+| 1 | 4 | TFP classification | 2020–2021 | 0.675 | ✅ Complete |
+| 2 | 4 | TFP classification | 2019–2021 | **0.768** | ✅ Complete |
+| 3 | 8 | Hybrid WPC (smoke test)† | 2024 only | 0.127 | ✅ Complete |
+| 4 | 4 | TFP classification | 2019–2024 | 0.642* | 🔄 A100 queued |
+| 5a | 12 | Hybrid ERA5×WPC (OF bug)‡ | 2019–2024 | 0.693 | ✅ Complete |
+| **5b** | **12** | **Hybrid corrected, 5-class** | **2019–2024** | **0.255** | ✅ Complete |
+| 6 | 12 | TFP labels (12ch baseline) | 2019–2024 | — | 🔄 A100 queued |
+| 7 | 11 | ERA5 regression (continuous) | 2019–2024 | — | 🔄 A100 queued |
 
-*Run 3 smoke test: 2024 only, 10 epochs, not converged.
-†Run 4 best so far at epoch 10 (CF=0.751, WF=0.697, SF=0.476), still training.
-‡Run 5a best at epoch 28 (12ch, 2025 val). OF labels were silent zero due to N-S flip + priority bug; see Run 5b for corrected hybrid.
+†Run 3: 1 year, 10 epochs; not converged — first OF detection (F1=0.063).  
+‡Run 5a: OF silently zero due to N-S coordinate flip + priority overwrite in `build_hybrid_discover.py`.  
+*Run 4 CPU partial (ep10 best); resubmitted on A100 for full training.
 
-**WPC label-pipeline overhaul (2026-06):** the WPC ground-truth extraction was fixed —
-front extraction (had silently returned 0 px), a ~10° projection rotation (fronts were
-100–360 km off), and the **stationary-front class** (recovered from the alternating
-red/blue symbols, previously always empty). 20 years of labels regenerated; SF populated
-for the first time, unblocking the 5-class **Run 5**. See `REPORT.md` §6.5 / `PIPELINE.md` Step 3.
+### Run 5b — Final Results (2026-06-29, A100)
 
-### Run 5b — Early Epochs (NASA Discover A100 GPU, active since 2026-06-29)
+First complete hybrid run with corrected 5-class labels.
+Label counts (2019): CF=524 K · WF=215 K · SF=352 K · OF=104 K (Berry et al. 2011 consistent).
 
-Run 5b is the first run with **correct hybrid labels** including real Occluded Front (OF) pixels.
-Two bugs were fixed before this run: an OF priority overwrite that inflated OF to 626 K pixels,
-and a N-S coordinate flip on Discover (lat ascending vs. WPC descending) that collapsed OF to
-~26 K by mirror-imaging the masks. After fixes, 2019 label counts: CF=524 K, WF=215 K,
-SF=352 K, OF=104 K — consistent with published front climatology (Berry et al. 2011).
+| Ep | CF | WF | SF | OF | Mean |
+|----|----|----|----|----|------|
+| 1 | 0.181 | 0.092 | 0.223 | 0.081 | 0.144 |
+| 3 | 0.260 | 0.132 | 0.264 | 0.172 | 0.207 |
+| **Best (ep23)** | — | — | — | **0.242** | **0.255** |
+| 30 | — | — | — | — | 0.249–0.255 (plateau) |
 
-**Class weights (inverse-frequency, 2019–2024 training set):**
+OF detected from ep1 — Run 5a had OF=0 for all 28 epochs.  
+Model plateaus ep23–30; training-set expansion (2007–2018 hybrid labels) is the next step.
 
-| BG | CF | WF | SF | OF |
-|----|----|----|----|----|
-| 0.05 | 0.85 | 1.24 | 0.95 | **1.91** |
-
-OF has the highest class weight (rarest front type) — model is correctly penalized for missing it.
-
-**Early epoch results (2025 validation, 12ch hybrid):**
-
-| Epoch | CF | WF | SF | OF | Mean |
-|-------|----|----|----|----|------|
-| 1 | 0.181 | 0.092 | 0.223 | **0.081** | 0.144 |
-| 2 | 0.259 | 0.117 | 0.227 | 0.084 | 0.172 |
-| 3 | 0.260 | 0.132 | 0.264 | **0.172** | 0.207 |
-
-OF F1 is non-zero from epoch 1 — a fundamental advance over Run 5a where OF never appeared.
-The rapid increase (0.081→0.172 by ep3) suggests the model is actively learning OF structure.
-
-*Training ongoing — final results expected at ep30.*
-
----
-
-### Run 4 — Current Results (Epoch 10/30, NASA Discover CPU)
-
-Run 4 establishes the TFP 4-channel ceiling with 6 years of training data.
-Directly comparable to Run 2 (same model, same label strategy, 2× training data).
-
-| Epoch | CF | WF | SF | Mean |
-|-------|----|----|-----|------|
-| 1 | 0.617 | 0.549 | 0.301 | 0.489 |
-| 5 | 0.653 | 0.602 | 0.383 | 0.546 |
-| 10 | **0.751** | **0.697** | **0.476** | **0.642** |
-
-*Training ongoing. Expected to surpass Run 2 (0.768) by epoch 20–25.*
-
-### Run 2 — Final Metrics (Epoch 30, train 2019–2021 / val 2022)
-
-| Class | F1 | Notes |
-|-------|----|-------|
-| Cold Front (CF) | 0.837 | Strong signal from temperature gradient |
-| Warm Front (WF) | 0.822 | Consistent with CF |
-| Stationary Front (SF) | 0.645 | Challenging — low temperature advection |
-| **Mean** | **0.768** | Best checkpoint at epoch 30 |
-
-### Run 3 — Smoke Test (Epoch 10, 2024 data only)
-
-| Class | F1 | Notes |
-|-------|----|-------|
-| Cold Front (CF) | 0.165 | Still improving |
-| Warm Front (WF) | 0.153 | Still improving |
-| Stationary Front (SF) | 0.000 | Insufficient data |
-| Occluded Front (OF) | 0.063 | **First successful OF detection** |
-| **Mean** | **0.127** | Not converged — 1 year only |
+**WPC label-pipeline overhaul (2026-06):** fixed front extraction (0-px bug), ~10° projection
+rotation (100–360 km offset), and SF class (alternating red/blue, previously undetected).
+20 years of labels regenerated; SF populated for the first time. See `REPORT.md` §6.5.
 
 ---
 
 ## Run 5: 12-Channel Hybrid
 
-### Run 5a vs. Run 5b
-
-Run 5 went through two stages. **Run 5a** (completed ep28, F1=0.693) used hybrid labels that
-silently had OF=0 due to two bugs in `build_hybrid_discover.py`:
-
-1. **Priority bug**: OF was assigned first and overwritten by CF/WF/SF → inflated to 626 K or zeroed depending on TFP threshold direction.
-2. **N-S coordinate flip**: Discover training files store lat ascending (15→70N) while WPC extraction uses descending (70→15N). Intersecting by array index instead of coordinate value mirror-flipped the masks → OF collapsed from ~104 K to ~26 K (near-threshold class, most sensitive).
-
-Fix: `wpc = wpc.reindex(lat=tr["lat"].values, lon=tr["lon"].values, fill_value=0)` with OF assigned last (highest priority).
-
-**Run 5b** (currently training on A100) uses the corrected labels and is the first run to show real OF detection.
-
----
-
-Run 5b is the first full hybrid training run — combining ERA5 thermodynamics
-(position accuracy) with WPC analyst labels (expert type judgment) and
-expanded 12-channel atmospheric input.
+Run 5 combines ERA5 thermodynamics (position accuracy) with WPC analyst labels (expert type
+judgment) over 12 input channels. Run 5a (ep28, F1=0.693) had OF=0 throughout due to two bugs
+in `build_hybrid_discover.py`: (1) OF priority overwrite by CF/WF/SF, (2) N-S coordinate flip
+(Discover lat ascending vs. WPC descending). Fixed via `wpc.reindex(lat=..., lon=...)` with OF
+assigned last. Run 5b is the corrected run (ep30, F1=0.255, OF=0.242).
 
 ### 12-Channel Input
 
@@ -156,13 +96,6 @@ expanded 12-channel atmospheric input.
 SF (Stationary Front) is now fully populated for the first time, after
 the WPC label pipeline overhaul that recovered SF from the alternating
 red/blue symbol pattern (previously always 0 px).
-
-### Auto-Chain
-Run 5 starts automatically after Run 4 via `run5_chain.sh`:
-1. Wait for Run 4 to finish (process-based polling)
-2. Build `extra_channels_YYYY.nc` for 2019–2025 from ERA5 regional (no new downloads)
-3. Rebuild hybrid labels 2022–2025 with corrected WPC (SF populated)
-4. Launch `train_unet_v4.py --train 2019 2024 --val 2025 2025 --epochs 30`
 
 ---
 
@@ -220,8 +153,8 @@ Training runs in parallel across three platforms:
 
 | Platform | Device | Batch | Role |
 |----------|--------|-------|------|
-| MacBook Pro (M-series) | Apple MPS | 8 | Development, Run 4 |
-| NASA Discover PRISM | NVIDIA A100-SXM4-40GB | 32 | Run 4 CPU · Run 5 GPU |
+| MacBook Pro (M-series) | Apple MPS | 8 | Development, Runs 1–3 |
+| NASA Discover PRISM | NVIDIA A100-SXM4-40GB | 32 | Runs 4–7 (A100 GPU) |
 
 **Discover:** SLURM `gpu_a100` partition, PyTorch 2.6.0 + CUDA 12.4, ERA5 at `/css/era5/`.
 The A100-SXM4-40GB (40 GB HBM2) is a top-tier research GPU — the HPC standard before H100,
