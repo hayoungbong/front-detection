@@ -112,10 +112,20 @@ Validated against analyst bulletins (n=64): CF recall 364→216 km after the fix
 ## Step 4 — [NEW] Build Hybrid Labels
 
 ```bash
+# Mac (reads from /Volumes/SSD_Hayoung/)
 python scripts/build_hybrid_labels.py --years 2019 2020 2021 2022 2023 2024 2025
 python scripts/build_hybrid_labels.py --years 2019 2024 --tfp-thresh 0.12 --dilate 2
 python scripts/build_hybrid_labels.py --years 2024 --verify 2024  # with QC plot
+
+# NASA Discover (self-contained: downloads WPC GIFs, projects, intersects TFP)
+python scripts/build_hybrid_discover.py --years 2019 2020 2021 2022 2023 2024 2025
 ```
+
+> **Discover coordinate note (critical):** Discover training files store lat **ascending**
+> (15→70N, from `sortby('lat')` in `build_training_data_discover.py`), while the WPC
+> extraction grid is lat **descending** (70→15N). Intersecting by raw array index
+> silently N-S flips the masks — OF (near TFP threshold) drops from ~104 K to ~26 K.
+> Always align by coordinate: `wpc = wpc.reindex(lat=tr["lat"].values, lon=tr["lon"].values, fill_value=0)`.
 
 **Novel contribution:** Intersects ERA5 TFP (accurate position) with WPC labels
 (accurate front type) to produce superior 5-class training targets.
@@ -178,11 +188,12 @@ Extracts 8 additional atmospheric variables per year for Run 5 12-channel input.
 ## Step 6 — Train U-Net
 
 ```bash
-# Run 4: 4-channel TFP labels (complete)
+# Run 4: 4-channel TFP labels
 python scripts/train_unet.py --epochs 30 --batch 8 \
     --train 2019 2020 2021 2022 2023 2024 --val 2025
 
-# Run 5: 12-channel hybrid labels (in progress)
+# Run 5a: 12-channel, hybrid labels (completed ep28, F1=0.693 — OF=0 due to label bugs)
+# Run 5b: 12-channel, corrected hybrid labels (active on Discover A100, OF F1=0.172 at ep3)
 python scripts/train_unet_v4.py \
     --train 2019 2024 --val 2025 2025 \
     --epochs 30 --batch 32 \
@@ -190,6 +201,11 @@ python scripts/train_unet_v4.py \
 
 python scripts/train_unet_v4.py --resume   # continue from checkpoint
 ```
+
+> **Discover note:** On Discover, SLURM runs the root-level `train_unet_v4.py` (not
+> `scripts/`). After editing `scripts/train_unet_v4.py`, always `cp scripts/train_unet_v4.py train_unet_v4.py`.
+> Discover hybrid files contain only `front_label` (not t850/u850/etc.); the training
+> script reads ERA5 vars from `era5_YYYY_training.nc` automatically when t850 is absent.
 
 Checkpoints: `models/`
 
