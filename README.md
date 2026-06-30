@@ -196,7 +196,14 @@ re-implements and substantially extends it:
 - **Hybrid labels** — fusing objective ERA5/TFP (Thermal Front Parameter) front
   *positions* with expert WPC *types* (extracted directly from analysis archives),
   enabling **occluded-front detection** that TFP alone cannot achieve.
-- **Regression branch** — a threshold-free, WPC-independent alternative that
-  predicts continuous frontal fields (new; not in the original).
+- **Regression branch** — predicts continuous ERA5 physical fields directly,
+  making the output more tightly connected to atmospheric dynamics and independent
+  of analyst judgment. Because the targets (TFP, temperature advection, gradient
+  magnitude) are computed at 850 hPa rather than the surface, results may differ
+  from a true surface-front analysis; however, the 850 hPa fields are closely
+  coupled to moisture transport and frontal dynamics, making them a valuable
+  indicator for large-scale atmospheric applications. Not present in the original
+  codebase.
 - **Downstream applications** — hurricane transition, drought, wildfire, and
-  multi-decadal front climatology.
+  multi-decadal front climatology. The original codebase focuses solely on model
+  training and detection; these scientific applications are new to this project.
