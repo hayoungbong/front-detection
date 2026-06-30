@@ -83,9 +83,8 @@ AFFINE = (
 )
 
 # ── Hybrid label constants ─────────────────────────────────────────────────
-TFP_THRESH    = 0.12   # |TFP| threshold for CF/WF/SF
-TFP_THRESH_OF = 0.05   # weaker threshold for OF (occluded fronts have lower 850hPa gradient)
-DILATE_CELLS  = 2      # WPC dilation ±2 cells ≈ ±50 km
+TFP_THRESH   = 0.12   # |TFP| threshold (all front types must agree with TFP)
+DILATE_CELLS = 2      # WPC dilation ±2 cells ≈ ±50 km
 LABEL = {"BG": 0, "CF": 1, "WF": 2, "SF": 3, "OF": 4}
 
 
@@ -352,13 +351,13 @@ def build_hybrid_year(year: int, overwrite: bool = False) -> Path | None:
         sf_d = binary_dilation(wpc_sf[wi].astype(bool), struct[0])
         of_d = binary_dilation(wpc_of[wi].astype(bool), struct[0])
 
-        of_mask = tfp_t > TFP_THRESH_OF
         lbl = np.zeros((H, W), dtype=np.int8)
-        # Priority: CF > WF > SF > OF
-        lbl[of_mask & of_d] = LABEL["OF"]
+        # Each type: TFP detects front AND WPC agrees within dilate cells.
+        # Priority OF > CF > WF > SF (OF rarest, assigned last to win overlaps).
         lbl[front_mask & sf_d] = LABEL["SF"]
         lbl[front_mask & wf_d] = LABEL["WF"]
         lbl[front_mask & cf_d] = LABEL["CF"]
+        lbl[front_mask & of_d] = LABEL["OF"]
 
         hybrid[ti] = lbl
         cf_total += int((lbl == 1).sum())
@@ -372,7 +371,7 @@ def build_hybrid_year(year: int, overwrite: bool = False) -> Path | None:
     )
     ds_out.attrs["tfp_thresh"]   = TFP_THRESH
     ds_out.attrs["dilate_cells"] = DILATE_CELLS
-    ds_out.attrs["of_note"]      = "OF uses WPC only (no TFP requirement)"
+    ds_out.attrs["method"]       = "TFP front zone AND dilated WPC type; OF highest priority"
     ds_out.attrs["label_map"]    = "0=BG 1=CF 2=WF 3=SF 4=OF"
 
     enc = {"front_label": {"zlib": True, "complevel": 4, "dtype": "int8"}}
@@ -410,7 +409,7 @@ def main():
     print(f"  WPC labels: {WPC_DIR}", flush=True)
     print(f"  Hybrid out: {OUT_DIR}", flush=True)
     print(f"  TFP thresh: {TFP_THRESH}  dilate: {DILATE_CELLS} cells", flush=True)
-    print(f"  OF note   : no TFP requirement (occluded fronts have weak TFP)", flush=True)
+    print(f"  Method    : TFP zone AND dilated WPC type (OF highest priority)", flush=True)
     print(flush=True)
 
     for year in args.years:
