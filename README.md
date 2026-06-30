@@ -135,10 +135,16 @@ near-perfectly — with no dependence on analyst judgment.
 
 ## Current Direction
 
-**1. Improving the models** *(`.pt` = the trained PyTorch model — the millions of
-learned network weights, plus optimizer state and epoch number)*
-We are exploring which input **channels** help versus add noise, and how best to
-use the type information extracted from WPC without degrading performance.
+**1. Improving the models** *(`.pt` = the trained PyTorch model — millions of
+learned weights, plus optimizer state and epoch number)*
+Two open questions drive the next runs:
+- **Channel selection**: adding more ERA5 input channels did not always help —
+  Run 6 (12 channels) underperformed Run 4 (4 channels). We are testing which
+  channels are genuinely informative and which hurt the model.
+- **Whether and how to incorporate WPC front types**: using analyst-classified
+  labels (Hybrid) enabled occluded-front detection but lowered F1 for the other
+  front types. The trade-off between richer type information and model
+  performance is still being resolved.
 
 **2. Applications** *(in collaboration with domain experts)*
 
