@@ -22,11 +22,11 @@ Training details
 
 Usage
 -----
-    python train_unet.py                              # train (2020–2021 / val 2022)
-    python train_unet.py --epochs 50 --batch 8
-    python train_unet.py --train 2000 2019 --val 2020
-    python train_unet.py --resume                     # continue from *_resume.pt
-    python train_unet.py --predict 2022-06-15T00      # single-timestep inference
+    python train_unet_classifier_legacy.py                              # train (2020–2021 / val 2022)
+    python train_unet_classifier_legacy.py --epochs 50 --batch 8
+    python train_unet_classifier_legacy.py --train 2000 2019 --val 2020
+    python train_unet_classifier_legacy.py --resume                     # continue from *_resume.pt
+    python train_unet_classifier_legacy.py --predict 2022-06-15T00      # single-timestep inference
 """
 
 import os, argparse, time, sys

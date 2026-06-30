@@ -1,139 +1,179 @@
 # Weather Front Detection with Deep Learning
 
-Automated detection and classification of synoptic-scale weather fronts
-(Cold / Warm / Stationary / Occluded) over North America using ERA5 reanalysis
-and a U-Net deep learning model.
+## Overview
+
+A PyTorch U-Net learns to detect and classify synoptic-scale weather fronts
+(Cold / Warm / Stationary / Occluded) over North America from ERA5 reanalysis.
+It is trained on **Hybrid labels** that fuse objective ERA5/TFP front *positions*
+with expert WPC front *types* — giving an automatic, reproducible front product
+that can be generated for any period and linked to hurricanes, drought, and
+wildfire.
 
 ---
 
-## Project Summary
+## Method
 
-| Item | Detail |
-|------|--------|
-| **Domain** | 15–70°N, 170–50°W (North American frontal zone) |
-| **Resolution** | 0.25°, 6-hourly (00/06/12/18 UTC) |
-| **Input data** | ERA5 reanalysis (CDS API), 2019–2025 |
-| **Labels** | TFP-based (Runs 1–2, 4, 6) · Hybrid ERA5×WPC 5-class (Runs 3, 5) |
-| **Models** | U-Net classification (4–12 ch) · U-Net regression (11 ch → 3 targets) |
-| **Best F1** | Run 4: **0.718** (4-ch) · Run 5b: **0.255** incl. OF |
-| **Best r** | Run 7: **r=0.993** (physical regression) |
-| **Compute** | Mac M-series MPS (inference) · NASA Discover A100 (training) |
+### The idea
 
----
+Weather fronts are one of the most important features on a surface analysis
+map, but today they are still drawn **by hand**, one boundary at a time, by
+human forecasters. This project asks: *can a neural network learn to draw them
+automatically, from a limited set of physical fields?*
 
-## Training Run History
+If it can, then fronts become a **quantitative, reproducible layer** that can be
+produced for any time step — past, present, or future — and linked to the
+high-impact phenomena fronts are tied to: hurricane transitions, drought onset,
+wildfire spread, and long-term climate trends.
 
-| Run | Ch | Labels | Train | Best F1 / r | Status |
-|-----|----|--------|-------|-------------|--------|
-| 1 | 4 | TFP | 2020–21 | F1=0.675 | ✅ |
-| 2 | 4 | TFP | 2019–21 | F1=**0.768** | ✅ |
-| 3 | 8 | Hybrid WPC† | 2024 only | F1=0.127 | ✅ |
-| **4** | **4** | **TFP** | **2019–24** | **F1=0.718** | **✅ Best classifier** |
-| 5a | 12 | Hybrid (OF bug‡) | 2019–24 | OF=0 | ✅ ablation |
-| **5b** | **12** | **Hybrid corrected** | **2019–24** | **F1=0.255, OF=0.242** | **✅ OF-capable** |
-| 6 | 12 | TFP (12ch ablation) | 2019–24 | F1=0.688 | ✅ |
-| **7** | **11** | **Regression** | **2019–24** | **r=0.993** | **✅ Best predictor** |
+### ERA5 — the input
 
-†Run 3: smoke test, 10 epochs, first OF detection.  
-‡Run 5a: OF=0 throughout due to coordinate mismatch in label builder.
+[ERA5](https://www.ecmwf.int/en/forecasts/dataset/ecmwf-reanalysis-v5) is a
+global atmospheric reanalysis (0.25°, hourly) that gives a physically consistent
+"best estimate" of the atmosphere. We feed the model a stack of ERA5 fields
+(temperature, wind, geopotential, humidity, etc. at selected pressure levels).
 
----
+### TFP — an objective front locator
 
-## Run Progression and Key Findings
+The **Thermal Front Parameter (TFP)** is a diagnostic computed *purely* from the
+ERA5 temperature field. It measures where horizontal temperature gradients are
+tightening, which is exactly where fronts form. TFP is fully **dynamical and
+objective** — no human input — but it has one limitation: it can locate a front,
+yet it **cannot tell what *type* of front** it is.
 
-```
-Run 1 (4ch, 2yr)  →  Run 2 (4ch, 3yr)  →  Run 4 (4ch, 6yr)  ← BEST CLASSIFIER
-                                                  ↓ hybrid labels
-                                            Run 5b (12ch, 5-class)  ← OF CAPABLE
+### U-Net — the model
 
-Run 6 (12ch TFP ablation): 12-ch < 4-ch by 0.030 F1
-→ Finding: extra channels hurt when labels are TFP-derived (redundant with t850)
+[U-Net](https://arxiv.org/abs/1505.04597) is an encoder–decoder convolutional
+network with skip connections, originally built for image segmentation. Front
+detection *is* a segmentation problem — every grid cell is classified as
+background or a front type — which makes U-Net a natural fit.
 
-Run 7 (11ch → tfp/tadv/∇T regression): r = 0.993
-→ Finding: U-Net backbone can learn physical diagnostics near-perfectly
-```
+### Why "Hybrid" labels?
 
----
+To teach the model front *types*, we need labels that include type information.
+Two sources, two trade-offs:
 
-## Scientific Applications
+| Source | Strength | Weakness |
+|--------|----------|----------|
+| **ERA5 / TFP** | Grid-accurate position; fully dynamical and explainable | Cannot classify front type |
+| **WPC analysis** | Expert classification (CF/WF/SF/OF) | Human-drawn → subjective, positional error → adds noise that can lower ML performance |
 
-### 1. Hurricane ET Analysis
+The **Hybrid label** combines the best of both: it takes the **position from
+ERA5/TFP** (clean, dynamically grounded) and the **type from WPC** (expert
+judgment), keeping only places where the two agree. This suppresses the human
+noise in WPC while gaining the type information ERA5 alone cannot provide — and
+it is the only route to detecting **occluded fronts (OF)**, which TFP cannot see.
 
-6-hourly front detection through TC lifetime → timeseries of CF/WF fraction.
+### Strategy
 
-- **Ida 2021**: WF ingestion post-landfall → ET signal detected
-- **Ian 2022**: CF interaction through FL panhandle track
-- **Helene 2024**: WF fraction peaks **exactly** at ET onset (9/27); model independently
-  confirms IBTrACS ET classification. Post-ET frontal gap connects to NJ historic drought.
-
-### 2. Wildfire Risk
-
-Fire Weather Index (FWI) + CF probability maps. Cold front passage = fire-spread
-precursor (post-frontal dry + gusty). Case study: CA 2021-08-29.
-
-### 3. Front Climatology (2019–2025)
-
-- Annual and seasonal CF/WF/SF frequency maps
-- Zonal mean frequency by latitude
-- Linear trend per grid cell (2019–2025)
-- Fire hotspot (FIRMS) overlay
+| Phase | Period (example) | Purpose |
+|-------|------------------|---------|
+| **Training**    | 2010–2024 | Learn fronts from ERA5 + Hybrid labels |
+| **Validation**  | 2025      | Measure skill on unseen years |
+| **Application** | 2026, historical (1940+), extreme events | Apply the trained model where no hand-drawn fronts exist |
 
 ---
 
-## Repository Structure
+## Results
 
-```
-front-detection/
-├── scripts/
-│   ├── train_unet_v4.py          # Classifier (Runs 4–6)
-│   ├── train_unet_reg.py         # Regressor (Run 7)
-│   ├── build_training_data.py    # ERA5 → training.nc
-│   ├── build_extra_channels.py   # Extra 8 channels
-│   ├── build_hybrid_discover.py  # Hybrid ERA5×WPC labels
-│   ├── download_era5_*.py        # CDS download helpers
-│   └── submit_run{4,5,6,7}_gpu.sh  # Discover A100 SLURM scripts
-├── README.md
-├── REPORT.md
-└── PIPELINE.md
-```
+### Front types
+
+| Code | Type | What it is |
+|------|------|------------|
+| **CF** | Cold Front | Cold air advancing, undercutting warmer air ahead |
+| **WF** | Warm Front | Warm air advancing and rising over retreating cold air |
+| **SF** | Stationary Front | Boundary between air masses with little movement |
+| **OF** | Occluded Front | A cold front overtaking a warm front, lifting the warm air aloft |
+
+### How we measure skill
+
+We report the **F1 score** — the harmonic mean of precision and recall (0 = worst,
+1 = perfect). F1 is well suited here because fronts are *rare* compared with
+background, so plain accuracy would be misleading. Each model trains for a set
+number of **epochs** (full passes over the training data; typically 30).
+
+### Progression of runs
+
+The project grew through a series of runs, each answering one question. Compute
+also evolved: the early runs ran on a **Mac (CPU, then Apple-silicon GPU)**, and
+later runs moved to **NASA Discover A100 GPUs** (up to 4×A100 with distributed
+training) — cutting per-epoch time from hours to minutes.
+
+| Run | What it added | Why |
+|-----|---------------|-----|
+| **Run 2** | 4-channel TFP classifier, 3 training years | Establish a clean baseline that fronts are learnable |
+| **Run 4** | Extended to 6 training years | More data → best classical classifier (F1 ≈ 0.72) |
+| **Run 5** | 12-channel **Hybrid** labels | First model to detect **occluded fronts (OF)** |
+| **Run 7** | **Regression** (ERA5-only, no WPC) | Remove human-label noise entirely — predict continuous frontal fields instead of discrete classes |
+| **Run 8** | Hybrid + 15 training years, 4×A100 | Test whether more data restores type-classification skill at scale |
+
+**Why a regression run (Run 7)?** Discrete labels inherit the subjectivity and
+positional error of the human WPC analysis. Regression sidesteps this: instead
+of predicting a front *class*, the model predicts the **continuous ERA5
+diagnostic fields** (front location, temperature advection, gradient strength).
+This is threshold-free, fully reproducible, and robust for climate-scale
+application. It reached a near-perfect correlation (r ≈ 0.99) with the physical
+target fields.
 
 ---
 
-## Quick Start (inference)
+## Current Direction
 
-```bash
-conda activate geospy_env
-export KMP_DUPLICATE_LIB_OK=TRUE
+**1. Improving the models** *(`.pt` = the trained PyTorch model — the millions of
+learned network weights, plus optimizer state and epoch number)*
+We are exploring which input **channels** help versus add noise, and how best to
+use the type information extracted from WPC without degrading performance.
 
-# Load Run 4 (classification)
-import torch
-from scripts.train_unet_v4 import UNet
-ckpt  = torch.load("run4_best.pt", weights_only=False)
-model = UNet(in_ch=4, num_classes=4)
-model.load_state_dict(ckpt["model_state"])
+**2. Applications** *(in collaboration with domain experts)*
 
-# Load Run 7 (regression)
-from scripts.train_unet_reg import UNet as UNetReg
-ckpt  = torch.load("run7_best.pt", weights_only=False)
-model = UNetReg(in_ch=ckpt["in_ch"], n_out=ckpt["n_out"])
-model.load_state_dict(ckpt["model_state"])
+| Area | Question |
+|------|----------|
+| **Tropical / extratropical cyclones (TC/ETC)** | How do fronts interact with storms during transition? |
+| **Drought** | Can front frequency anomalies signal dry-spell onset? |
+| **Wildfire** | Does cold-front passage precede fire-spread conditions? |
+| **Climatology** | How are front frequency and position shifting over decades? |
 
-# Always pad to multiple of 16
-import numpy as np
-H, W = x.shape[-2:]
-pH = (16 - H%16)%16; pW = (16 - W%16)%16
-x  = np.pad(x, ((0,0),(0,0),(0,pH),(0,pW)), mode="reflect")
-pred = model(torch.tensor(x[None]))[..., :H, :W]
-```
+Each of these will be developed with advice from specialists in the respective
+fields.
+
+---
+
+## Code
+
+The project centers on two training scripts:
+
+| Script | Purpose |
+|--------|---------|
+| `train_unet_classifier.py` | U-Net **classifier** — predicts discrete front types (CF/WF/SF/OF) from ERA5 + Hybrid labels |
+| `train_unet_regression.py` | U-Net **regressor** — predicts continuous ERA5 frontal fields, no WPC labels |
+
+Both share the same U-Net backbone and differ only in their output head and
+labels. A trained model is saved as a `.pt` checkpoint and can be loaded for
+inference on any ERA5 time step.
 
 ---
 
 ## Data
 
-| Source | Variable | Temporal coverage |
-|--------|----------|-------------------|
-| ERA5 pressure levels | t/u/v/z/q/w @ 850/500/925 hPa | 2019–2025 |
-| ERA5 single level | msl/t2m/u10/v10/tp | 2019–2025 |
-| FIRMS MODIS | Fire hotspots | 2000–2025 |
-| IBTrACS | TC best tracks (NA/EP/WP) | 1842–2025 |
-| WPC frontal analysis | GIF archives | 2007–2024 |
+| Source | Role |
+|--------|------|
+| **ERA5** reanalysis | Model input (temperature, wind, geopotential, humidity at selected levels) |
+| **WPC** surface analysis | Expert front types for Hybrid labels |
+| **IBTrACS** | Tropical-cyclone tracks (TC/ETC application) |
+| **FIRMS** | Satellite fire detections (wildfire application) |
+
+---
+
+## Origin & What's New
+
+This work began from [aaTman/fronts](https://github.com/aaTman/fronts) (a fork of
+ai2es/fronts), which provides a TensorFlow front-detection toolkit. Our project
+re-implements and substantially extends it:
+
+- **PyTorch re-implementation** with mixed-precision and multi-GPU (4×A100) training.
+- **Hybrid labels** — fusing objective ERA5/TFP front *positions* with expert WPC
+  *types* (extracted directly from analysis archives), enabling **occluded-front
+  detection** that TFP alone cannot achieve.
+- **Regression branch** — a threshold-free, WPC-independent alternative that
+  predicts continuous frontal fields (new; not in the original).
+- **Downstream applications** — hurricane transition, drought, wildfire, and
+  multi-decadal front climatology.

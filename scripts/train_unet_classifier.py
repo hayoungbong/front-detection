@@ -14,10 +14,10 @@ Data layout:
       → variables: z500, q850, w850, msl, t925, t2m, u10, v10
 
 Usage:
-  python train_unet_v4.py                              # default: train 2022 2023 2024, val 2025
-  python train_unet_v4.py --train 2022 2023 2024 --val 2025 --epochs 30
-  python train_unet_v4.py --predict 2026-01-15T00      # inference
-  python train_unet_v4.py --resume
+  python train_unet_classifier.py                              # default: train 2022 2023 2024, val 2025
+  python train_unet_classifier.py --train 2022 2023 2024 --val 2025 --epochs 30
+  python train_unet_classifier.py --predict 2026-01-15T00      # inference
+  python train_unet_classifier.py --resume
 """
 
 import os, argparse, time, csv
@@ -36,6 +36,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data.distributed import DistributedSampler
 
 # ── Paths (overridable via --data-root or individual --*-dir flags) ────────
 _DEFAULT_ROOT = Path('/Volumes/SSD_Hayoung/fronts')
@@ -56,12 +59,26 @@ BASE_VARS  = ['t850', 'u850', 'v850', 'tfp_850']               # from hybrid NC
 EXTRA_VARS = ['z500', 'q850', 'w850', 'msl', 't925', 't2m', 'u10', 'v10']  # from extra_channels NC
 ALL_VARS   = BASE_VARS + EXTRA_VARS
 
+# ── Distributed setup ──────────────────────────────────────────────────────
+def setup_ddp():
+    """Init process group if launched with torchrun; otherwise single-GPU."""
+    local_rank  = int(os.environ.get("LOCAL_RANK",  0))
+    world_size  = int(os.environ.get("WORLD_SIZE",  1))
+    if world_size > 1:
+        dist.init_process_group("nccl")
+        torch.cuda.set_device(local_rank)
+    return local_rank, world_size
+
+def cleanup_ddp():
+    if dist.is_initialized():
+        dist.destroy_process_group()
+
 # ── Device ─────────────────────────────────────────────────────────────────
-def get_device():
+def get_device(local_rank=0):
     if torch.backends.mps.is_available():
         return torch.device('mps')
     if torch.cuda.is_available():
-        return torch.device('cuda')
+        return torch.device(f'cuda:{local_rank}')
     return torch.device('cpu')
 
 
@@ -282,49 +299,90 @@ def compute_metrics(preds: np.ndarray, labels: np.ndarray) -> dict:
 # ── Training ───────────────────────────────────────────────────────────────
 def train(args):
     global _logfile  # noqa: must declare global to modify module-level _logfile
-    device = get_device()
-    print(f'Device: {device}')
+
+    local_rank, world_size = setup_ddp()
+    is_ddp  = world_size > 1
+    is_main = (local_rank == 0)   # only rank 0 logs / saves
+
+    device = get_device(local_rank)
+    if is_main:
+        print(f'Device: {device}  |  world_size={world_size}  |  AMP={args.amp}  |  compile={args.compile}')
 
     train_years = list(range(args.train[0], args.train[1] + 1))
     val_years   = list(range(args.val[0],   args.val[1]   + 1))
-    print(f'Train: {train_years}  Val: {val_years}')
+    if is_main:
+        print(f'Train: {train_years}  Val: {val_years}')
 
     label_tag   = 'tfp' if USE_TFP else 'hybrid'   # Run 6 = tfp, Run 5 = hybrid
-    run_tag     = f'unet_v4_{label_tag}_{train_years[0]}-{train_years[-1]}_e{args.epochs}_b{args.batch}'
+    detail_tag  = f'{label_tag}_{IN_CH}ch_{N_CLASSES}cls_{train_years[0]}-{train_years[-1]}'
+    run_tag     = f'{args.run_name}_{detail_tag}' if args.run_name else f'unet_{detail_tag}_e{args.epochs}_b{args.batch}'
     log_path    = MODEL_DIR / f'{run_tag}.log'
     csv_path    = MODEL_DIR / f'{run_tag}_metrics.csv'
     resume_ckpt = MODEL_DIR / f'{run_tag}_resume.pt'
 
-    _logfile = open(log_path, 'a')
-    print(f'Log: {log_path}')
+    if is_main:
+        _logfile = open(log_path, 'a')
+        print(f'Log: {log_path}')
 
-    print('Computing normalization stats...')
+    if is_main:
+        print('Computing normalization stats...')
     norm = compute_norm_stats(train_years)
-    for k, (mu, std) in norm.items():
-        print(f'  {k}: mean={mu:.4g}  std={std:.4g}')
+    if is_main:
+        for k, (mu, std) in norm.items():
+            print(f'  {k}: mean={mu:.4g}  std={std:.4g}')
 
-    print('Loading datasets...')
+    if is_main:
+        print('Loading datasets...')
     train_ds = HybridFrontDataset(train_years, norm)
     val_ds   = HybridFrontDataset(val_years,   norm)
-    train_loader = DataLoader(train_ds, batch_size=args.batch, shuffle=True,  num_workers=0, pin_memory=False)
-    val_loader   = DataLoader(val_ds,   batch_size=args.batch, shuffle=False, num_workers=0, pin_memory=False)
+
+    pin = (device.type == 'cuda')
+    nw  = args.workers
+    if is_ddp:
+        train_sampler = DistributedSampler(train_ds, num_replicas=world_size,
+                                           rank=local_rank, shuffle=True)
+        train_loader = DataLoader(train_ds, batch_size=args.batch,
+                                  sampler=train_sampler,
+                                  num_workers=nw, pin_memory=pin,
+                                  persistent_workers=(nw > 0))
+    else:
+        train_loader = DataLoader(train_ds, batch_size=args.batch, shuffle=True,
+                                  num_workers=nw, pin_memory=pin,
+                                  persistent_workers=(nw > 0))
+    val_loader = DataLoader(val_ds, batch_size=args.batch, shuffle=False,
+                            num_workers=nw, pin_memory=pin,
+                            persistent_workers=(nw > 0))
 
     model = UNet(in_ch=IN_CH, num_classes=N_CLASSES).to(device)
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f'U-Net parameters: {n_params/1e6:.1f}M  ({IN_CH} channels → {N_CLASSES} classes)')
+    if is_main:
+        print(f'U-Net parameters: {n_params/1e6:.1f}M  ({IN_CH} channels → {N_CLASSES} classes)')
+
+    if args.compile and hasattr(torch, 'compile'):
+        if is_main:
+            print('Compiling model with torch.compile ...')
+        model = torch.compile(model)
+
+    if is_ddp:
+        model = DDP(model, device_ids=[local_rank])
 
     w = class_weights(train_years, device)
     criterion = FocalLoss(gamma=2.0, weight=w)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
+    raw_params = model.module.parameters() if is_ddp else model.parameters()
+    optimizer = torch.optim.AdamW(raw_params, lr=args.lr, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=args.epochs, eta_min=args.lr * 0.01)
+
+    # Mixed precision: bf16 on CUDA (no GradScaler needed)
+    use_amp  = args.amp and device.type == 'cuda'
+    amp_dtype = torch.bfloat16 if use_amp else torch.float32
 
     best_val_f1 = 0.0
     start_epoch = 1
 
     # Header for CSV
     front_classes = [c for c in CLASS_NAMES if c != 'BG']  # CF WF SF OF
-    if not csv_path.exists():
+    if is_main and not csv_path.exists():
         with open(csv_path, 'w', newline='') as f:
             csv.writer(f).writerow(
                 ['epoch', 'train_loss', 'val_loss'] +
@@ -334,24 +392,32 @@ def train(args):
 
     if args.resume and resume_ckpt.exists():
         ckpt = torch.load(resume_ckpt, map_location=device, weights_only=False)
-        model.load_state_dict(ckpt['model_state'])
+        raw_model = model.module if is_ddp else model
+        raw_model.load_state_dict(ckpt['model_state'])
         optimizer.load_state_dict(ckpt['optimizer_state'])
         scheduler.load_state_dict(ckpt['scheduler_state'])
         start_epoch = ckpt['epoch'] + 1
         best_val_f1 = ckpt['best_val_f1']
-        print(f'Resumed from epoch {ckpt["epoch"]}  (best F1={best_val_f1:.3f})')
+        if is_main:
+            print(f'Resumed from epoch {ckpt["epoch"]}  (best F1={best_val_f1:.3f})')
 
     for epoch in range(start_epoch, args.epochs + 1):
+        if is_ddp:
+            train_sampler.set_epoch(epoch)
         model.train()
         train_loss = 0.0
         t0 = time.time()
-        for xb, yb in train_loader:
+        for batch_i, (xb, yb) in enumerate(train_loader):
+            if args.smoke and batch_i >= 10:
+                break
             xb, yb = xb.to(device), yb.to(device)
             optimizer.zero_grad()
-            logits = model(xb)
-            if logits.shape[-2:] != yb.shape[-2:]:
-                logits = logits[..., :yb.shape[-2], :yb.shape[-1]]
-            loss = criterion(logits, yb)
+            with torch.autocast('cuda' if device.type == 'cuda' else 'cpu',
+                                 dtype=amp_dtype, enabled=use_amp):
+                logits = model(xb)
+                if logits.shape[-2:] != yb.shape[-2:]:
+                    logits = logits[..., :yb.shape[-2], :yb.shape[-1]]
+                loss = criterion(logits, yb)
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
@@ -359,55 +425,61 @@ def train(args):
         scheduler.step()
         train_loss /= len(train_loader)
 
-        # Validation
+        # Validation (only rank 0 in DDP to avoid duplicating val data)
         model.eval()
         val_loss = 0.0
         all_preds, all_labels = [], []
         with torch.no_grad():
             for xb, yb in val_loader:
                 xb, yb = xb.to(device), yb.to(device)
-                logits = model(xb)
-                if logits.shape[-2:] != yb.shape[-2:]:
-                    logits = logits[..., :yb.shape[-2], :yb.shape[-1]]
+                with torch.autocast('cuda' if device.type == 'cuda' else 'cpu',
+                                     dtype=amp_dtype, enabled=use_amp):
+                    logits = model(xb)
+                    if logits.shape[-2:] != yb.shape[-2:]:
+                        logits = logits[..., :yb.shape[-2], :yb.shape[-1]]
                 val_loss += criterion(logits, yb).item()
                 all_preds.append(logits.argmax(1).cpu().numpy())
                 all_labels.append(yb.cpu().numpy())
         val_loss /= len(val_loader)
 
-        metrics = compute_metrics(np.concatenate(all_preds), np.concatenate(all_labels))
-        f1s = [metrics[c]['f1'] for c in front_classes if metrics[c]['tp'] + metrics[c]['fn'] > 0]
-        mean_f1 = float(np.mean(f1s)) if f1s else 0.0
-        elapsed = time.time() - t0
+        if is_main:
+            metrics = compute_metrics(np.concatenate(all_preds), np.concatenate(all_labels))
+            f1s = [metrics[c]['f1'] for c in front_classes if metrics[c]['tp'] + metrics[c]['fn'] > 0]
+            mean_f1 = float(np.mean(f1s)) if f1s else 0.0
+            elapsed = time.time() - t0
 
-        f1_str = '  '.join(f'{c}:{metrics[c]["f1"]:.3f}' for c in front_classes)
-        msg = (f'Epoch {epoch:3d}/{args.epochs}  '
-               f'loss {train_loss:.4f}→{val_loss:.4f}  '
-               f'F1 {f1_str}  mean:{mean_f1:.3f}  {elapsed:.0f}s')
-        log(msg)
+            f1_str = '  '.join(f'{c}:{metrics[c]["f1"]:.3f}' for c in front_classes)
+            msg = (f'Epoch {epoch:3d}/{args.epochs}  '
+                   f'loss {train_loss:.4f}→{val_loss:.4f}  '
+                   f'F1 {f1_str}  mean:{mean_f1:.3f}  {elapsed:.0f}s')
+            log(msg)
 
-        with open(csv_path, 'a', newline='') as f:
-            csv.writer(f).writerow(
-                [epoch, f'{train_loss:.6f}', f'{val_loss:.6f}'] +
-                [f'{metrics[c]["f1"]:.4f}' for c in front_classes] +
-                [f'{mean_f1:.4f}', f'{elapsed:.0f}']
-            )
+            with open(csv_path, 'a', newline='') as f:
+                csv.writer(f).writerow(
+                    [epoch, f'{train_loss:.6f}', f'{val_loss:.6f}'] +
+                    [f'{metrics[c]["f1"]:.4f}' for c in front_classes] +
+                    [f'{mean_f1:.4f}', f'{elapsed:.0f}']
+                )
 
-        if mean_f1 > best_val_f1:
-            best_val_f1 = mean_f1
-            best_ckpt = MODEL_DIR / f'{run_tag}_best.pt'
-            torch.save({'epoch': epoch, 'model_state': model.state_dict(),
-                        'norm_stats': norm, 'val_f1': best_val_f1,
-                        'metrics': metrics, 'in_ch': IN_CH, 'n_classes': N_CLASSES}, best_ckpt)
-            log(f'  → saved best: {best_ckpt.name}  (F1={best_val_f1:.3f})')
+            raw_model = model.module if is_ddp else model
+            if mean_f1 > best_val_f1:
+                best_val_f1 = mean_f1
+                best_ckpt = MODEL_DIR / f'{run_tag}_best.pt'
+                torch.save({'epoch': epoch, 'model_state': raw_model.state_dict(),
+                            'norm_stats': norm, 'val_f1': best_val_f1,
+                            'metrics': metrics, 'in_ch': IN_CH, 'n_classes': N_CLASSES}, best_ckpt)
+                log(f'  → saved best: {best_ckpt.name}  (F1={best_val_f1:.3f})')
 
-        torch.save({'epoch': epoch, 'model_state': model.state_dict(),
-                    'optimizer_state': optimizer.state_dict(),
-                    'scheduler_state': scheduler.state_dict(),
-                    'best_val_f1': best_val_f1, 'norm_stats': norm,
-                    'in_ch': IN_CH, 'n_classes': N_CLASSES}, resume_ckpt)
+            torch.save({'epoch': epoch, 'model_state': raw_model.state_dict(),
+                        'optimizer_state': optimizer.state_dict(),
+                        'scheduler_state': scheduler.state_dict(),
+                        'best_val_f1': best_val_f1, 'norm_stats': norm,
+                        'in_ch': IN_CH, 'n_classes': N_CLASSES}, resume_ckpt)
 
-    log(f'\nTraining complete. Best val F1: {best_val_f1:.3f}')
-    if _logfile: _logfile.close()
+    if is_main:
+        log(f'\nTraining complete. Best val F1: {best_val_f1:.3f}')
+        if _logfile: _logfile.close()
+    cleanup_ddp()
 
 
 # ── Inference ──────────────────────────────────────────────────────────────
@@ -536,7 +608,25 @@ def main():
     p.add_argument('--hybrid-dir', type=str,   default=None)
     p.add_argument('--extra-dir',  type=str,   default=None)
     p.add_argument('--model-dir',  type=str,   default=None)
+    # ── Optimization flags ──
+    p.add_argument('--amp',     action='store_true', default=True,
+                   help='bf16 mixed precision on CUDA (default: on)')
+    p.add_argument('--no-amp',  dest='amp', action='store_false',
+                   help='Disable mixed precision')
+    p.add_argument('--workers', type=int, default=4,
+                   help='DataLoader num_workers (default: 4; use 0 on MPS)')
+    p.add_argument('--compile', action='store_true',
+                   help='torch.compile the model (~15-30%% speedup on A100/H100)')
+    # ── Smoke-test flag ──
+    p.add_argument('--run-name',  type=str, default=None,
+                   help='Optional suffix appended to model filename (e.g. run8, run8b)')
+    p.add_argument('--smoke', action='store_true',
+                   help='Smoke test: 1 year, 2 epochs, 10 batches — verifies the full pipeline fast')
     args = p.parse_args()
+
+    if args.smoke:
+        args.epochs = 2
+        args.batch  = max(args.batch, 8)
 
     # Run 6: switch to 4-class TFP labels (BG/CF/WF/SF), same 12 input channels
     if args.tfp_labels:

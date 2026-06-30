@@ -19,9 +19,9 @@ years). The model predicts standardized targets; metrics are reported as
 normalized RMSE and Pearson correlation (scale-free) per target.
 
 Usage:
-  python train_unet_reg.py --train 2019 2024 --val 2025 2025 --epochs 30 --batch 32 \
+  python train_unet_regression.py --train 2019 2024 --val 2025 2025 --epochs 30 --batch 32 \
       --data-root /discover/nobackup/projects/giss/paleofun/hbong/front/data
-  python train_unet_reg.py --resume ...
+  python train_unet_regression.py --resume ...
 """
 
 import os, argparse, time, csv
@@ -251,7 +251,7 @@ def train(args):
     n_out = len(targets)
     print(f'Regression targets ({n_out}): {targets}')
 
-    run_tag     = f'unet_reg_{train_years[0]}-{train_years[-1]}_e{args.epochs}_b{args.batch}'
+    run_tag     = args.run_name if args.run_name else f'unet_reg_{train_years[0]}-{train_years[-1]}_e{args.epochs}_b{args.batch}'
     log_path    = MODEL_DIR / f'{run_tag}.log'
     csv_path    = MODEL_DIR / f'{run_tag}_metrics.csv'
     resume_ckpt = MODEL_DIR / f'{run_tag}_resume.pt'
@@ -384,6 +384,8 @@ def main():
                    help='Override data dirs: <root>/training, <root>/models')
     p.add_argument('--extra-dir', type=str,   default=None)
     p.add_argument('--model-dir', type=str,   default=None)
+    p.add_argument('--run-name',  type=str,   default=None,
+                   help='Prefix for saved model files (e.g. run8_reg → run8_reg_best.pt)')
     args = p.parse_args()
 
     if args.data_root:
