@@ -45,12 +45,13 @@ Label counts (2019): CF=524 K · WF=215 K · SF=352 K · OF=104 K (Berry et al. 
 | Ep | CF | WF | SF | OF | Mean |
 |----|----|----|----|----|------|
 | 1 | 0.181 | 0.092 | 0.223 | 0.081 | 0.144 |
-| 3 | 0.260 | 0.132 | 0.264 | 0.172 | 0.207 |
-| **Best (ep23)** | — | — | — | **0.242** | **0.255** |
-| 30 | — | — | — | — | 0.249–0.255 (plateau) |
+| 5 | 0.266 | 0.140 | 0.262 | 0.165 | 0.208 |
+| 10 | 0.275 | 0.160 | 0.277 | 0.190 | 0.225 |
+| 20 | 0.302 | 0.173 | 0.278 | 0.221 | 0.243 |
+| **30 (final)** | **0.315** | **0.175** | **0.289** | **0.242** | **0.255** |
 
 OF detected from ep1 — Run 5a had OF=0 for all 28 epochs.  
-Model plateaus ep23–30; training-set expansion (2007–2018 hybrid labels) is the next step.
+Plateau ep25–30 (F1 0.252–0.255); training-set expansion (2007–2018 hybrid labels) is the next step.
 
 **WPC label-pipeline overhaul (2026-06):** fixed front extraction (0-px bug), ~10° projection
 rotation (100–360 km offset), and SF class (alternating red/blue, previously undetected).

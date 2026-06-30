@@ -409,19 +409,28 @@ Run 5b simultaneously addresses every limitation identified in Runs 1–4:
 
 OF carries the highest weight — the model is explicitly penalized for missing the rarest front type.
 
-**Results (2025 validation):**
+**Full epoch results (2025 validation, ~120 s/epoch on A100):**
 
-| Epoch | CF | WF | SF | OF | Mean | Time/ep |
-|-------|----|----|----|----|------|---------|
-| 1 | 0.181 | 0.092 | 0.223 | 0.081 | 0.144 | 123 s |
-| 2 | 0.259 | 0.117 | 0.227 | 0.084 | 0.172 | 121 s |
-| 3 | 0.260 | 0.132 | 0.264 | 0.172 | 0.207 | 120 s |
-| **Best (ep23)** | — | — | — | **0.242** | **0.255** | — |
-| 30 | — | — | — | — | 0.249–0.255 (plateau) | — |
+| Epoch | train loss | val loss | CF | WF | SF | OF | Mean |
+|-------|-----------|---------|----|----|----|----|------|
+| 1 | 0.0157 | 0.0114 | 0.181 | 0.092 | 0.223 | 0.081 | 0.144 |
+| 2 | 0.0091 | 0.0094 | 0.259 | 0.117 | 0.227 | 0.084 | 0.172 |
+| 3 | 0.0078 | 0.0084 | 0.260 | 0.132 | 0.264 | 0.172 | 0.207 |
+| 5 | 0.0066 | 0.0077 | 0.266 | 0.140 | 0.262 | 0.165 | 0.208 |
+| 9 | 0.0053 | 0.0078 | 0.266 | 0.161 | 0.263 | 0.159 | 0.212 |
+| 10 | 0.0049 | 0.0080 | 0.275 | 0.160 | 0.277 | 0.190 | 0.225 |
+| 12 | 0.0042 | 0.0087 | 0.290 | 0.164 | 0.275 | 0.193 | 0.230 |
+| 16 | 0.0027 | 0.0115 | 0.286 | 0.162 | 0.278 | 0.214 | 0.235 |
+| 17 | 0.0023 | 0.0125 | 0.295 | 0.167 | 0.271 | 0.219 | 0.238 |
+| 20 | 0.0016 | 0.0150 | 0.302 | 0.173 | 0.278 | 0.221 | 0.243 |
+| 22 | 0.0013 | 0.0171 | 0.297 | 0.168 | 0.281 | 0.234 | 0.245 |
+| 25 | 0.0010 | 0.0202 | 0.309 | 0.175 | 0.291 | 0.242 | 0.254 |
+| **30 (final)** | **0.0008** | **0.0223** | **0.315** | **0.175** | **0.289** | **0.242** | **0.255** |
 
 **Key observations:**
 - OF F1 > 0 from epoch 1 (Run 5a: OF=0 throughout 28 epochs).
-- Plateau at ep23–30 (F1 0.249–0.255); val_loss diverging from training loss (overfitting).
+- val_loss diverges from train_loss starting ep2 onward (0.0084 vs 0.0078 at ep3; 0.0223 vs 0.0008 at ep30) — severe overfitting.
+- F1 plateaus ep25–30 (0.252–0.255); no new best saved after ep25 until ep30 final.
 - Next step: extend training set to 2007–2018 (~12 additional years of hybrid labels).
 
 | Aspect | Run 4 | Run 5a | **Run 5b** |
@@ -429,7 +438,7 @@ OF carries the highest weight — the model is explicitly penalized for missing 
 | Label source | TFP threshold | Hybrid (OF broken) | **Hybrid corrected** |
 | Input channels | 4 | 12 | **12** |
 | Occluded Front | ✗ | ✗ | **✓ (OF=0.242)** |
-| Best F1 | 0.642 (ep10, CPU) | 0.693 (ep28) | **0.255 (ep23)** |
+| Best F1 | 0.642 (ep10, CPU) | 0.693 (ep28) | **0.255 (ep30)** |
 | Hardware | CPU | A100 | **A100** |
 
 ### 6.5 WPC Label-Pipeline Overhaul (enables Run 5)
