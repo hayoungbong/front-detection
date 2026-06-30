@@ -27,7 +27,7 @@ wildfire spread, and long-term climate trends.
 
 ### ERA5 — the input
 
-[ERA5](https://www.ecmwf.int/en/forecasts/dataset/ecmwf-reanalysis-v5) is a
+ERA5 is a
 global atmospheric reanalysis (0.25°, hourly) that gives a physically consistent
 "best estimate" of the atmosphere. We feed the model a stack of ERA5 fields
 (temperature, wind, geopotential, humidity, etc. at selected pressure levels).
@@ -42,7 +42,7 @@ yet it **cannot tell what *type* of front** it is.
 
 ### U-Net — the model
 
-[U-Net](https://arxiv.org/abs/1505.04597) is an encoder–decoder convolutional
+U-Net is an encoder–decoder convolutional
 network with skip connections, originally built for image segmentation. Front
 detection *is* a segmentation problem — every grid cell is classified as
 background or a front type — which makes U-Net a natural fit.
@@ -165,8 +165,8 @@ inference on any ERA5 time step.
 
 ## Origin & What's New
 
-This work began from [aaTman/fronts](https://github.com/aaTman/fronts) (a fork of
-ai2es/fronts), which provides a TensorFlow front-detection toolkit. Our project
+This work began from aaTman/fronts (a fork of ai2es/fronts), which provides a
+TensorFlow front-detection toolkit. Our project
 re-implements and substantially extends it:
 
 - **PyTorch re-implementation** with mixed-precision and multi-GPU (4×A100) training.
