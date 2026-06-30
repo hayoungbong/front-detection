@@ -352,11 +352,12 @@ def build_hybrid_year(year: int, overwrite: bool = False) -> Path | None:
         of_d = binary_dilation(wpc_of[wi].astype(bool), struct[0])
 
         lbl = np.zeros((H, W), dtype=np.int8)
-        lbl[front_mask & cf_d] = LABEL["CF"]
-        lbl[front_mask & wf_d] = LABEL["WF"]
-        lbl[front_mask & sf_d] = LABEL["SF"]
-        # OF: skip TFP requirement — occluded fronts have weak lower-trop gradient
+        # Priority: CF > WF > SF > OF
+        # OF assigned first (no TFP requirement), then confirmed types overwrite
         lbl[of_d] = LABEL["OF"]
+        lbl[front_mask & sf_d] = LABEL["SF"]
+        lbl[front_mask & wf_d] = LABEL["WF"]
+        lbl[front_mask & cf_d] = LABEL["CF"]
 
         hybrid[ti] = lbl
         cf_total += int((lbl == 1).sum())
