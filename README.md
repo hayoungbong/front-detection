@@ -58,8 +58,8 @@ Two sources, two trade-offs:
 
 | Source | Strength | Weakness |
 |--------|----------|----------|
-| **ERA5 / TFP** | Grid-accurate position; fully dynamical and explainable | Cannot classify front type |
-| **WPC analysis** | Expert classification (CF/WF/SF/OF) | Human-drawn → subjective, positional error → adds noise that can lower ML performance |
+| **ERA5 / TFP** | Grid-accurate position; objective and physically interpretable | Cannot classify front type |
+| **WPC analysis** | Forecaster-classified types (CF/WF/SF/OF) | Analyst judgment → subjectivity and positional uncertainty → noise that can degrade ML performance |
 
 The **Hybrid label** combines the best of both: it takes the **position from
 ERA5/TFP** (clean, dynamically grounded) and the **type from WPC** (expert
