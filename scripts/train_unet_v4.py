@@ -75,19 +75,24 @@ def compute_norm_stats(years: list) -> dict:
             continue
         h = xr.open_dataset(hp)
         e = xr.open_dataset(ep)
+        # Discover: hybrid has labels only; ERA5 vars are in era5_YYYY_training.nc
+        tp = EXTRA_DIR / f'era5_{year}_training.nc'
+        b = xr.open_dataset(tp) if ('t850' not in h and tp.exists()) else h
 
         # Align times
         common = np.intersect1d(h.time.values, e.time.values)
-        h = h.sel(time=common); e = e.sel(time=common)
+        common = np.intersect1d(common, b.time.values)
+        h = h.sel(time=common); e = e.sel(time=common); b = b.sel(time=common)
 
         for i, var in enumerate(ALL_VARS):
-            ds = h if var in BASE_VARS else e
+            ds = b if var in BASE_VARS else e
             vals = ds[var].values.astype(np.float64)
             sums[i]    += vals.sum()
             sq_sums[i] += (vals ** 2).sum()
             if i == 0:
                 count += vals.size
         h.close(); e.close()
+        if b is not h: b.close()
 
     means = sums / count
     stds  = np.sqrt(np.maximum(sq_sums / count - means ** 2, 1e-12))
@@ -120,22 +125,28 @@ class HybridFrontDataset(Dataset):
 
             h = xr.open_dataset(hp)
             e = xr.open_dataset(ep)
+            # Discover: hybrid has labels only; ERA5 vars are in era5_YYYY_training.nc
+            tp = EXTRA_DIR / f'era5_{year}_training.nc'
+            b = xr.open_dataset(tp) if ('t850' not in h and tp.exists()) else h
 
             # Align timestamps (inner)
             common = np.intersect1d(h.time.values, e.time.values)
+            common = np.intersect1d(common, b.time.values)
             h = h.sel(time=common)
             e = e.sel(time=common)
+            b = b.sel(time=common)
 
             channels = []
             for var in ALL_VARS:
-                ds   = h if var in BASE_VARS else e
+                ds   = b if var in BASE_VARS else e
                 arr  = ds[var].values.astype(np.float32)
                 mu, sigma = norm_stats[var]
                 channels.append((arr - mu) / sigma)
 
-            x_all = np.stack(channels, axis=1)        # [T, 8, H, W]
+            x_all = np.stack(channels, axis=1)        # [T, 12, H, W]
             y_all = h['front_label'].values.astype(np.int8)  # [T, H, W]
             h.close(); e.close()
+            if b is not h: b.close()
 
             # Pad to multiple of pad_to for U-Net pooling
             T, C, H, W = x_all.shape
