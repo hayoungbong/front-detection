@@ -317,9 +317,15 @@ def build_hybrid_year(year: int, overwrite: bool = False) -> Path | None:
     tr  = xr.open_dataset(train_path)
     wpc = xr.open_dataset(wpc_path)
 
-    tfp    = tr["tfp_850"].values          # (T, lat, lon) — already training domain
-    # WPC grid is 70→15°N, 170→50°W (221×481); training grid same dimensions
-    wpc_cf = wpc["CF"].values              # (T_wpc, lat, lon)
+    # CRITICAL: align WPC grid to the training grid by COORDINATE, not array index.
+    # Discover training files store lat ascending (15→70N) after sortby('lat'),
+    # while WPC extraction writes lat descending (70→15N). Intersecting by raw
+    # index would N-S flip the masks. reindex matches by actual lat/lon values,
+    # so the output also matches the orientation of the extra_channels the model reads.
+    wpc = wpc.reindex(lat=tr["lat"].values, lon=tr["lon"].values, fill_value=0)
+
+    tfp    = tr["tfp_850"].values          # (T, lat, lon) — training domain & orientation
+    wpc_cf = wpc["CF"].values              # (T_wpc, lat, lon) — now aligned to tr grid
     wpc_wf = wpc["WF"].values
     wpc_sf = wpc["SF"].values
     wpc_of = wpc["OF"].values
