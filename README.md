@@ -69,11 +69,13 @@ it is the only route to detecting **occluded fronts (OF)**, which TFP cannot see
 
 ### Strategy
 
-| Phase | Period (example) | Purpose |
-|-------|------------------|---------|
+Periods are adjustable depending on data availability and the target application.
+
+| Phase | Period | Purpose |
+|-------|--------|---------|
 | **Training**    | 2010–2024 | Learn fronts from ERA5 + Hybrid labels |
 | **Validation**  | 2025      | Measure skill on unseen years |
-| **Application** | 2026, historical (1940+), extreme events | Apply the trained model where no hand-drawn fronts exist |
+| **Application** | 2026 onward; historical (1940+); extreme events | Apply the trained model wherever automated front analysis is needed |
 
 ---
 
@@ -90,10 +92,18 @@ it is the only route to detecting **occluded fronts (OF)**, which TFP cannot see
 
 ### How we measure skill
 
-We report the **F1 score** — the harmonic mean of precision and recall (0 = worst,
-1 = perfect). F1 is well suited here because fronts are *rare* compared with
-background, so plain accuracy would be misleading. Each model trains for a set
-number of **epochs** (full passes over the training data; typically 30).
+**Classification runs** report the **F1 score** — the harmonic mean of precision
+and recall (0 = worst, 1 = perfect). F1 is well suited here because fronts are
+*rare* compared with background, so plain accuracy would be misleading.
+
+**The regression run (Run 7)** predicts continuous physical values rather than
+discrete labels, so F1 does not apply. Instead we report **Pearson correlation
+(r)**, which measures how closely the predicted field tracks the actual ERA5
+field at every grid point. An r ≈ 0.99 means the model reproduces the spatial
+pattern of the physical field almost exactly.
+
+Each model trains for a set number of **epochs** (full passes over the training
+data; typically 30).
 
 ### Progression of runs
 
@@ -106,17 +116,20 @@ training) — cutting per-epoch time from hours to minutes.
 |-----|---------------|-----|
 | **Run 2** | 4-channel TFP classifier, 3 training years | Establish a clean baseline that fronts are learnable |
 | **Run 4** | Extended to 6 training years | More data → best classical classifier (F1 ≈ 0.72) |
-| **Run 5** | 12-channel **Hybrid** labels | First model to detect **occluded fronts (OF)** |
-| **Run 7** | **Regression** (ERA5-only, no WPC) | Remove human-label noise entirely — predict continuous frontal fields instead of discrete classes |
-| **Run 8** | Hybrid + 15 training years, 4×A100 | Test whether more data restores type-classification skill at scale |
+| **Run 5** | 12-channel **Hybrid** labels | First to detect **occluded fronts (OF)**; F1 lower than Run 4 because Hybrid labels are harder to learn |
+| **Run 7** | **ERA5-only, no WPC labels** | Remove analyst-judgment noise — predict continuous physical fields instead of discrete classes (see below) |
+| **Run 8** | Hybrid + 15 training years [4×A100] | Extension of Run 5; tests whether more data closes the F1 gap introduced by Hybrid labels |
 
-**Why a regression run (Run 7)?** Discrete labels inherit the subjectivity and
-positional error of the human WPC analysis. Regression sidesteps this: instead
-of predicting a front *class*, the model predicts the **continuous ERA5
-diagnostic fields** (front location, temperature advection, gradient strength).
-This is threshold-free, fully reproducible, and robust for climate-scale
-application. It reached a near-perfect correlation (r ≈ 0.99) with the physical
-target fields.
+**Why predict continuous fields instead of classes (Run 7)?**
+Discrete front labels inherit the subjectivity and positional uncertainty of the
+operational analysis. An alternative is to predict the underlying **continuous
+ERA5 physical fields** — the Thermal Front Parameter, temperature advection, and
+temperature-gradient magnitude — directly. This is called *regression* in
+machine learning (continuous-value prediction, as opposed to *classification*
+into discrete categories). Because the targets are physical quantities, the
+natural metric is Pearson correlation (r) rather than F1. Run 7 reached r ≈ 0.99,
+meaning the model reproduces the spatial pattern of each physical field
+near-perfectly — with no dependence on analyst judgment.
 
 ---
 
