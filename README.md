@@ -19,9 +19,10 @@ temperature gradients that marks where air-mass boundaries are sharpening.
 ### The idea
 
 Weather fronts are one of the most important features on a surface analysis
-map, but today they are still drawn **by hand**, one boundary at a time, by
-human forecasters. This project asks: *can a neural network learn to draw them
-automatically, from a limited set of physical fields?*
+map, but the authoritative operational product still depends on **human
+forecaster judgment** — analysts manually place each boundary, guided by model
+output and observations. This project asks: *can a neural network learn to
+reproduce that analysis automatically, from a limited set of physical fields?*
 
 If it can, then fronts become a **quantitative, reproducible layer** that can be
 produced for any time step — past, present, or future — and linked to the
